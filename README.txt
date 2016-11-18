@@ -1,7 +1,11 @@
 DataReel Cluster Manager (DRCM) 1.X Readme File
 Copyright (c) 2016 DataReel Software Development
 
-https://github.com/datareel/datareel/tree/master/cluster_manager
+Online docs:
+http://datareel.com/info_drcm.html
+
+Source code:
+https://github.com/datareel/ha-cluster-manager
 
 Contents:
 --------
@@ -89,8 +93,8 @@ System administrators, follow the instructions below to build an RPM
 for distribution:
 
 $ cd $HOME; mkdir -pv git; cd $HOME/git
-$ git clone https://github.com/datareel/datareel
-$ cd ${HOME}/git/datareel/cluster_manager/rpm_builder
+$ git clone https://github.com/datareel/ha-cluster-manager
+$ cd ${HOME}/git/ha-cluster-manager/rpm_builder
 
 RHEL7/CENTOS7:
 
@@ -121,10 +125,10 @@ and install the DRCM server from the source code distro:
 $ ssh username@cmnode1
 $ mkdir -pv ~/git
 $ cd ~/git
-$ git clone https://github.com/datareel/datareel.git
-$ cd ~/git/datareel/env
+$ git clone https://github.com/datareel/ha-cluster-manager
+$ cd ~/git/ha-cluster-manager/env
 $ source gnu_env.sh
-$ cd ~/git/datareel/cluster_manager/drcm_server
+$ cd ~/git/ha-cluster-manager/drcm_server
 $ make
 $ sudo su root -c 'make install_root'
 
@@ -685,4 +689,5 @@ Remaining Work on This Project:
 Support and Bug Tracking:
 ------------------------
 
-https://github.com/datareel/datareel/issues
+https://github.com/datareel/ha-cluster-manager/issues
+
