@@ -65,6 +65,7 @@ tar xvf drcm_server.tar.gz -C $RPM_BUILD_ROOT
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/crontab.sh"
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/ipv4addr.sh"
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/ipv4addr_multi.sh"
+%config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/ipv4addr_copy_config.sh"
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/nfs.sh"
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/service.sh"
 %config(noreplace) %dir %attr(0755, root, root) "/etc/drcm/crontabs"
@@ -113,9 +114,10 @@ if [ $1 -ge 1 ] ; then
 fi
 
 %changelog
+* Thu Dec 21 2023 Datareel <datareel.com>
+- Added resource scripts
+
 * Sat Oct 01 2016 Datareel <datareel.com>
 - Initial RPM build
 
-* Dec 21 2023 Datareel <datareel.com>
-- Added resource scripts
 
