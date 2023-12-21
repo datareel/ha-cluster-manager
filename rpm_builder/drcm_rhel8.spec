@@ -1,6 +1,6 @@
 BuildArch: x86_64
 Name: drcm_server
-Version: 1.37        
+Version: 1.39        
 Release: 1.el8.x86_64
 Summary: Datareel Cluster Manager RPM        
 Group: System Environment/Daemons
@@ -115,3 +115,6 @@ fi
 %changelog
 * Sat Oct 01 2016 Datareel <datareel.com>
 - Initial RPM build 
+
+* Dec 21 2023 Datareel <datareel.com>
+- Added resource scripts

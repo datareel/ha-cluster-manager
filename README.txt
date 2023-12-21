@@ -1,5 +1,5 @@
-DataReel Cluster Manager (DRCM) 1.X Readme File
-Copyright (c) 2016 DataReel Software Development
+DataReel Cluster Manager (DRCM) 1.39 Readme File
+Copyright (c) 2023 DataReel Software Development
 
 Online docs:
 http://datareel.com/info_drcm.html
@@ -96,15 +96,20 @@ $ cd $HOME; mkdir -pv git; cd $HOME/git
 $ git clone https://github.com/datareel/ha-cluster-manager
 $ cd ${HOME}/git/ha-cluster-manager/rpm_builder
 
+RHEL 8:
+
+$ ./make_rhel8_rpm.sh
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.39-1.el8.x86_64.x86_64.rpm"
+
 RHEL7/CENTOS7:
 
 $ ./make_rhel7_rpm.sh
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.37-1.el7.x86_64.x86_64.rpm"
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.39-1.el7.x86_64.x86_64.rpm"
 
 RHEL6/CENTOS6:
 
 $ ./make_rhel6_rpm.sh
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.37-1.el6.x86_64.x86_64.rpm"
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.39-1.el6.x86_64.x86_64.rpm"
 
 Useful RPM command to verify package contents:
 
@@ -217,6 +222,8 @@ Each cluster node must have host-based firewall rules allowing the
 DRCM server access to the TCP and UDP ports set in CM global
 configuration:
 
+For IPTABLES:
+
 # iptables -N CLUSTERMANAGER
 # iptables -I INPUT 3 -j CLUSTERMANAGER
 # iptables -A CLUSTERMANAGER -p UDP --dport 53897 -s 192.168.122.183/32 -j ACCEPT 
@@ -224,8 +231,42 @@ configuration:
 # iptables -A CLUSTERMANAGER -p TCP --dport 53897 -s 192.168.122.183/32 -j ACCEPT 
 # iptables -A CLUSTERMANAGER -p TCP --dport 53897 -s 192.168.122.184/32 -j ACCEPT 
 
+For FIREWALLD:
+
+Review your current zones:
+
+# firewall-cmd --list-all
+
+If you have zones setup use --zone to apply to the zone with
+cluster interface:
+
+# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.183/32" port port="53897" protocol="udp" accept' --permanent
+# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" port port="53897" protocol="udp" accept' --permanent
+# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.183/32" port port="53897" protocol="tcp" accept' --permanent
+# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" port port="53897" protocol="tcp" accept' --permanent
+# firewall-cmd --reload
+
+In the host-based firewall you must all ping and SSH between the
+cluster nodes. To allow ping in firewalld:
+
+# firewall-cmd --permanent --add-icmp-block-inversion
+# firewall-cmd --permanent --add-icmp-block=echo-reply
+# firewall-cmd --permanent --add-icmp-block=echo-request
+# firewall-cmd --reload
+
+To allow SSH in firewalld for cluster node IPs:
+
+# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.183/32" service name="ssh" accept' --permanent
+# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" service name="ssh" accept' --permanent
+# firewall-cmd --reload
+
 Setting Up Global Cluster Resources:
 -----------------------------------
+You can download the latest cluster resource scripts from the source
+code REPO:
+
+https://github.com/datareel/ha-cluster-manager/tree/master/etc/resources
+
 All nodes in a cluster has the ability to run a global cluster
 resource as a primary function or as a backup function. DRCM has 5
 global resource categories:
@@ -295,8 +336,8 @@ node_services = web
 node_filesystems = data,arhive,webshare
 node_applications = ldm
 
-Floating IP Address Interface Configuration:
--------------------------------------------
+Floating IP Address Interface Configuration for RHEL 6 and RHEL 7:
+-----------------------------------------------------------------
 If your cluster has one or more floating IP addresses you must
 configure a sub-interface for each floating IP. A floating IP address
 is set in the global resource configuration  CM_IPADDRS section, for
@@ -320,6 +361,117 @@ IPADDR and PREFIX or NETMASK will be set by the DRCM server when the node
 resource is activated.
 
 # ifup eth0:1
+
+Floating IP Address Interface Configuration for RHEL 8:
+------------------------------------------------------
+For RHEL 8 the following method has been tested to fix the
+sub-interface issue with the legacy network-scripts and network
+manager.
+
+On all cluster nodes install the network-scripts:
+
+# yum -y install network-scripts 
+# systemctl enable network
+# reboot
+
+On all your cluster nodes setup all the ifcfg-name file using
+sub-interfaces as follows, for example on a VMWARE VM with 1
+interface:
+
+# export ETHINT=ens192
+# mkdir -p /root/backups
+# cp -av /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /root/backups/ifcfg-${ETHINT}
+# vi /etc/sysconfig/network-scripts/ifcfg-${ETHINT}
+
+NAME="System ens192"
+TYPE=Ethernet
+DEVICE=ens192
+## UUID= (This will be your devices UUID for this host)
+ONBOOT=yes
+BOOTPROTO=none
+IPV6INIT=no
+IPV4_FAILURE_FATAL=no
+DEFROUTE=yes
+DNS1=192.168.122.1
+DOMAIN=example.com
+
+#
+# Use the subinterace if this is the primary server
+##IPADDR0=192.168.122.180
+PREFIX0=24
+GATEWAY0=192.168.122.1
+#
+IPADDR1=192.168.122.183
+PREFIX1=24
+GATEWAY1=192.168.122.1
+
+Save changes and test the config:
+
+# systemctl restart network
+
+Once all your cluster node have the the interface files with the
+sub-interface setup run the following DRCM resource script:
+
+# export ETHINT=ens192
+# cp /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /etc/drcm/my_cluster_conf/nhc-ls-sysadm4_start_backup_ip_${ETHINT}
+# cp /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /etc/drcm/my_cluster_conf/nhc-ls-sysadm4_stop_backup_ip_${ETHINT}
+
+On the primary cluster node SFTP to the backup nodes and copy the
+template files you created on the backup nodes:
+
+# cd /etc/drcm/my_cluster_conf
+# sftp 192.168.122.184
+sftp> cd /etc/drcm/my_cluster_conf
+sftp> mget *_backup_ip_*
+sftp> exit
+
+Edit all the *_start_backup_ip_* templates change uncomment the
+sub-interface IP:
+
+#
+# Use the subinterace if this is the primary server
+IPADDR0=192.168.122.180
+PREFIX0=24
+GATEWAY0=192.168.122.1
+
+So all the start templates have the sub-interface IP enable and all
+the stop templates have the sub-interface commented out.
+
+Setup your cluster config to use the IPv4 copy config resource file:
+
+# vi /etc/drcm/cm.cfg
+
+[CM_IPADDRS]
+cmnodef, 192.168.122.180, 255.255.255.0, ens192, /etc/drcm/resources/ipv4addr_copy_config.sh
+
+NOTE: If you are clustering VM and bare metal server use the following
+syntax:
+
+[CM_IPADDRS]
+cmnodef, 192.168.122.180, 255.255.255.0, 'ens192|eno8303', /etc/drcm/resources/ipv4addr_copy_config.sh
+
+On the primary cluster node copy the /etc/drcm directory to all the
+backup nodes:
+
+# rsync -av --force --stats --progress -n /etc/drcm 192.168.122.184:/etc/.
+
+Verify the rsync output from the dry run looks correct and re-run with
+out the dry run option:
+
+# rsync -av --force --stats --progress /etc/drcm 192.168.122.184:/etc/.
+
+On each cluster node test the floating IP:
+
+# /etc/drcm/resources/ipv4addr_copy_config.sh 192.168.122.180 255.255.255.0 ens192 start
+# ip a
+
+You should see the floating IP as the primary interface and should be
+able SSH to the floating IP from another node. Once verified stop the
+sub-interface:
+
+# /etc/drcm/resources/ipv4addr_copy_config.sh 192.168.122.180 255.255.255.0 ens192 stop
+
+Repeat this test on all the cluster nodes.
 
 Running the DRCM Server:
 -----------------------
