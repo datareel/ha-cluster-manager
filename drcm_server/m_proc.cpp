@@ -6,8 +6,8 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 09/17/2016
-// Copyright (c) 2016 DataReel Software Development
+// Date Last Modified: 12/30/2023
+// Copyright (c) 2016-2024 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
