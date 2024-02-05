@@ -25,7 +25,7 @@ if [ -z ${2} ]; then
 fi
 
 if [ -z ${3} ]; then
-    echo "ERROR - You must specify a group of Ehternet interfaces"
+    echo "ERROR - You must specify a group of Ethernet interfaces"
     error_level=1;
 fi
 
