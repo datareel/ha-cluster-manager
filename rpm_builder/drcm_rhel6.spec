@@ -1,6 +1,6 @@
 BuildArch: x86_64
 Name: drcm_server
-Version: 1.39        
+Version: 1.40        
 Release: 1.el6.x86_64
 Summary: Datareel Cluster Manager RPM        
 Group: System Environment/Daemons
@@ -66,6 +66,8 @@ tar xvf drcm_server.tar.gz -C $RPM_BUILD_ROOT
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/ipv4addr.sh"
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/ipv4addr_multi.sh"
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/ipv4addr_copy_config.sh"
+%config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/ipv4addr_nmcli.sh"
+%config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/ipv4addr_copy_nmcli.sh"
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/nfs.sh"
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/service.sh"
 %config(noreplace) %dir %attr(0755, root, root) "/etc/drcm/crontabs"
@@ -103,6 +105,9 @@ fi
 /sbin/service drcm_server restart > /dev/null 2>&1 || :
 
 %changelog
+* Mon Feb 05 2024 Datareel <datareel.com>
+- Added NMCLI resource scripts
+
 * Thu Dec 21 2023 Datareel <datareel.com>
 - Added resource scripts
 

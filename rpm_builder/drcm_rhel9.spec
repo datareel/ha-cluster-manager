@@ -1,7 +1,7 @@
 BuildArch: x86_64
 Name: drcm_server
 Version: 1.40        
-Release: 1.el8.x86_64
+Release: 1.el9.x86_64
 Summary: Datareel Cluster Manager RPM        
 Group: System Environment/Daemons
 License: GPL       

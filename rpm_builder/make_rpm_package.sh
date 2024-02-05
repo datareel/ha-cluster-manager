@@ -5,7 +5,7 @@ BUILDDIR_tmp="/tmp/drcm_build_${USERNAME}"
 
 if [ -z $1 ]; then
     echo "You must supply a OS version"
-    echo "Usage: ${0} rhel6|rhel7|rhel8"
+    echo "Usage: ${0} rhel6|rhel7|rhel8|rhel9"
     exit 1
 fi
 
