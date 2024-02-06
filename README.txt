@@ -1,5 +1,5 @@
-DataReel Cluster Manager (DRCM) 1.39 Readme File
-Copyright (c) 2023 DataReel Software Development
+DataReel Cluster Manager (DRCM) 1.40 Readme File
+Copyright (c) 2024 DataReel Software Development
 
 Online docs:
 http://datareel.com/info_drcm.html
@@ -96,20 +96,25 @@ $ cd $HOME; mkdir -pv git; cd $HOME/git
 $ git clone https://github.com/datareel/ha-cluster-manager
 $ cd ${HOME}/git/ha-cluster-manager/rpm_builder
 
+RHEL 9:
+
+$ ./make_rhel9_rpm.sh
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.40-1.el9.x86_64.x86_64.rpm"
+
 RHEL 8:
 
 $ ./make_rhel8_rpm.sh
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.39-1.el8.x86_64.x86_64.rpm"
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.40-1.el8.x86_64.x86_64.rpm"
 
 RHEL7/CENTOS7:
 
 $ ./make_rhel7_rpm.sh
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.39-1.el7.x86_64.x86_64.rpm"
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.40-1.el7.x86_64.x86_64.rpm"
 
 RHEL6/CENTOS6:
 
 $ ./make_rhel6_rpm.sh
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.39-1.el6.x86_64.x86_64.rpm"
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.40-1.el6.x86_64.x86_64.rpm"
 
 Useful RPM command to verify package contents:
 
@@ -413,8 +418,8 @@ Once all your cluster node have the the interface files with the
 sub-interface setup run the following DRCM resource script:
 
 # export ETHINT=ens192
-# cp /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /etc/drcm/my_cluster_conf/nhc-ls-sysadm4_start_backup_ip_${ETHINT}
-# cp /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /etc/drcm/my_cluster_conf/nhc-ls-sysadm4_stop_backup_ip_${ETHINT}
+# cp /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /etc/drcm/my_cluster_conf/$(hostname -s)_start_backup_ip_${ETHINT}
+# cp /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /etc/drcm/my_cluster_conf/$(hostname -s)_stop_backup_ip_${ETHINT}
 
 On the primary cluster node SFTP to the backup nodes and copy the
 template files you created on the backup nodes:
@@ -470,6 +475,171 @@ able SSH to the floating IP from another node. Once verified stop the
 sub-interface:
 
 # /etc/drcm/resources/ipv4addr_copy_config.sh 192.168.122.180 255.255.255.0 ens192 stop
+
+Repeat this test on all the cluster nodes.
+
+Floating IP Address Interface Configuration for RHEL 9
+------------------------------------------------------
+In RHEL 9 the legacy network-scripts are no longer available and you must use the
+NetworkManager to manage the network interfaces.   
+
+For the NMCLI 2 resource scripts have been added:
+
+/etc/drcm/resources/ipv4addr_nmcli.sh
+/etc/drcm/resources/ipv4addr_copy_nmcli.sh
+
+The ipv4addr_nmcli.sh resource script is for simple configuration where we will only
+be creating a single sub-interface and the sub-interface does not need to be the
+primary interface.
+
+The  ipv4addr_copy_nmcli.sh resource script is for complex configurations where you
+manually edit the network manager config file creating a start and stop interface file.
+
+Both resource scripts assume the NMCLI connection name and the device name are the same.
+Network manager connection commands update the connection profile on disk but do not
+apply the configuration to the interface. The network manager device commands read the
+connection profile from disk and apply the change to the interface. The NMCLI resource
+script uses both connection and device commands which is why the connection name and
+the device name must be the same.
+
+To use the ipv4addr_nmcli.sh for simple configurations setup your cluster config to use
+the IPv4 nmcli config resource file:
+
+# vi /etc/drcm/cm.cfg
+
+[CM_IPADDRS]
+cmnodef, 192.168.122.180, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh
+
+NOTE: If you are clustering VM and bare metal server use the following syntax:
+
+[CM_IPADDRS]
+cmnodef, 192.168.122.180, 255.255.255.0, 'ens192|eno8303', /etc/drcm/resources/ipv4addr_nmcli.sh
+
+On the primary cluster node copy the /etc/drcm directory to all the backup nodes:
+
+# rsync -av --force --stats --progress -n /etc/drcm 192.168.122.184:/etc/.
+
+Verify the rsync output from the dry run looks correct and re-run without the dry run option:
+
+# rsync -av --force --stats --progress /etc/drcm 192.168.122.184:/etc/.
+
+To use the ipv4addr_copy_nmcli.sh for complex configurations you must set up template files on all your cluster nodes. For example on a VMWARE VM with 1 interface:
+
+# export ETHINT=ens192
+# mkdir -p /root/backups
+# cp -av /etc/NetworkManager/system-connections/${ETHINT}.nmconnection /root/backups/${ETHINT}.nmconnection
+
+On the primary node create a start and stop template:
+
+# cp -av /etc/NetworkManager/system-connections/${ETHINT}.nmconnection /etc/drcm/my_cluster_conf/$(hostname -s)_start_backup_ip_${ETHINT}
+
+# cp -av /etc/NetworkManager/system-connections/${ETHINT}.nmconnection /etc/drcm/my_cluster_conf/$(hostname -s)_stop_backup_ip_${ETHINT}
+
+The stop template is for cluster node when it is not the primary holding the floating IP so it does need to be edited. 
+
+The start template must be edited to add the floating IP as the primary interface:
+
+# vi /etc/drcm/my_cluster_conf/$(hostname -s)_start_backup_ip_${ETHINT}
+
+[connection]
+id=ens192
+uuid=(This will be your devices UUID for this host)
+type=ethernet
+autoconnect-priority=-999
+interface-name=ens192
+timestamp=1707173943
+
+[ethernet]
+
+[ipv4]
+address1=192.168.122.180/24,192.168.122.1
+address1=192.168.122.182/24
+dns=192.168.122.1;
+method=manual
+
+[ipv6]
+addr-gen-mode=eui64
+method=auto
+
+[proxy]
+
+Save changes exit VI.
+
+Log into the secondary node and create the start and stop interfaces.
+To create the interface templates on the backup node run the following
+commands as root:
+
+# export ETHINT=ens192
+# mkdir -p /root/backups
+# cp -av /etc/NetworkManager/system-connections/${ETHINT}.nmconnection /root/backups/${ETHINT}.nmconnection
+# cp -av /etc/NetworkManager/system-connections/${ETHINT}.nmconnection /etc/drcm/my_cluster_conf/$(hostname -s)_start_backup_ip_${ETHINT}
+# cp -av /etc/NetworkManager/system-connections/${ETHINT}.nmconnection /etc/drcm/my_cluster_conf/$(hostname -s)_stop_backup_ip_${ETHINT}
+
+# vi /etc/drcm/my_cluster_conf/$(hostname -s)_start_backup_ip_${ETHINT}
+
+[connection]
+id=ens192
+uuid=(This will be your devices UUID for this host)
+type=ethernet
+autoconnect-priority=-999
+interface-name=ens192
+timestamp=1707173943
+
+[ethernet]
+
+[ipv4]
+address1=192.168.122.180/24,192.168.122.1
+address1=192.168.122.183/24
+dns=192.168.122.1;
+method=manual
+
+[ipv6]
+addr-gen-mode=eui64
+method=auto
+
+[proxy]
+
+Save changes exit VI.
+
+Log out the backup node and log back into the primary node.
+On the primary cluster node SFTP to the backup nodes and copy
+the template files you created on the backup nodes:
+
+# cd /etc/drcm/my_cluster_conf
+# sftp 192.168.122.184
+sftp> cd /etc/drcm/my_cluster_conf
+sftp> mget *_backup_ip_*
+sftp> exit
+
+Setup your cluster config to use the IPv4 copy config resource file:
+
+# vi /etc/drcm/cm.cfg
+
+[CM_IPADDRS]
+cmnodef, 192.168.122.180, 24, ens192, /etc/drcm/resources/ipv4addr_copy_nmcli.sh
+
+NOTE: If you are clustering VM and bare metal server use the following syntax:
+
+[CM_IPADDRS]
+cmnodef, 192.168.122.180, 255.255.255.0, 'ens192|eno8303', /etc/drcm/resources/ipv4addr_copy_nmcli.sh
+
+On the primary cluster node copy the /etc/drcm directory to all the backup nodes:
+
+# rsync -av --force --stats --progress -n /etc/drcm 192.168.122.184:/etc/.
+
+Verify the rsync output from the dry run looks correct and re-run without the dry run option:
+
+# rsync -av --force --stats --progress /etc/drcm 192.168.122.184:/etc/.
+
+On each cluster node test the floating IP:
+
+# /etc/drcm/resources/ipv4addr_copy_nmcli.sh 192.168.122.180 255.255.255.0 ens192 start
+# ip a
+
+You should see the floating IP as the primary interface and should
+be able SSH to the floating IP from another node. Once verified stop the sub-interface:
+
+# /etc/drcm/resources/ipv4addr_copy_nmcli.sh 192.168.122.180 255.255.255.0 ens192 stop
 
 Repeat this test on all the cluster nodes.
 
