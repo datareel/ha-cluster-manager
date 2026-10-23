@@ -375,14 +375,13 @@ void ExitProc(int return_code)
 }
 
 void termination_handler(int signum)
-// UNIX signal hander used to handle process termination signals  
+// UNIX signal hander used only for SIGSEGV and SIGBUS in non-debug
+// builds. All other signals are handled by the signal thread below.
 {
+#ifndef __DEBUG__
   sigset_t mask_set;
   sigset_t old_set;
-  int retries = 3;
-  gxString sbuf;
 
-#ifndef __DEBUG__
   if(signum == SIGSEGV) {
     signal(SIGSEGV, termination_handler); // Reset the signal handler again
     sigfillset(&mask_set); // Make any further signals while in handler
@@ -403,73 +402,48 @@ void termination_handler(int signum)
     ExitProc(1);
   }
 #endif
+}
+
+static void shutdown_from_signal()
+{
+  int retries = 3;
+  while(!StopProc() && --retries) sSleep(1);
+
+  // StopProc() ends the process thread, which lets main() return and
+  // exit normally. Calling exit() here while main() is still running
+  // would destroy the global config under it. Only force the exit if
+  // main() has no process thread to wait on or does not return.
+  if(servercfg->process_thread) sSleep(30);
+  ExitProc(retries ? 0 : 1);
+}
+
+void handle_process_signal(int signum)
+// Called from the signal thread, not from a signal handler, so it can
+// take locks, log and stop threads safely.
+{
+  gxString sbuf;
 
   if(signum == SIGINT) {
-    signal(SIGINT, SIG_IGN); // Log first and ignore all others
-    sigfillset(&mask_set);
-    sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
     LogProcMessage("Process interrupted with Ctrl-C");
-    while(!StopProc() && --retries) sSleep(1);
-    sigprocmask(SIG_SETMASK, &old_set, NULL);
-    if(!retries) ExitProc(1);
-    ExitProc(0);
+    shutdown_from_signal();
   }
   if(signum == SIGQUIT) {
-    signal(SIGQUIT, SIG_IGN);
-    sigfillset(&mask_set);
-    sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
     LogProcMessage("Process interrupted Ctrl-backslash");
-    sigprocmask(SIG_SETMASK, &old_set, NULL);
     return;
   }
   if(signum == SIGTERM) {
-    signal(SIGTERM, termination_handler);
-    sigfillset(&mask_set);
-    sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
     LogProcMessage("Process terminated by kill command");
-    while(!StopProc() && --retries) sSleep(1);
-    sigprocmask(SIG_SETMASK, &old_set, NULL);
-    if(!retries) ExitProc(1);
-    ExitProc(0);
+    shutdown_from_signal();
   }
   if(signum == SIGHUP) {
-    signal(SIGHUP, termination_handler);
-    sigfillset(&mask_set);
-    sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
     LogProcMessage("Process received hangup");
-    sigprocmask(SIG_SETMASK, &old_set, NULL);
     return;
-  }
-  if(signum == SIGKILL) {
-    signal(SIGKILL, termination_handler);
-    sigfillset(&mask_set);
-    sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
-    LogProcMessage("Process terminated by SIGKILL");
-    while(!StopProc() && --retries) sSleep(1);
-    sigprocmask(SIG_SETMASK, &old_set, NULL);
-    if(!retries) ExitProc(1);
-    ExitProc(0);
   }
   if(signum == SIGTSTP) {
-    signal(SIGTSTP, termination_handler);
-    sigfillset(&mask_set);
-    sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
     LogProcMessage("Process received suspend from Ctrl-Z");
-    sigprocmask(SIG_SETMASK, &old_set, NULL);
-    return;
-  }
-  if(signum == SIGABRT) {
-    signal(SIGABRT, termination_handler);
-    sigfillset(&mask_set);
-    sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
-    LogProcMessage("Process received SIGABRT");
-    sigprocmask(SIG_SETMASK, &old_set, NULL);
     return;
   }
   if(signum == SIGUSR1) {
-    signal(SIGUSR1, termination_handler);
-    sigfillset(&mask_set);
-    sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
     LogProcMessage("Process received SIGUSR1, lowering debug level");
     
     if(!servercfg->debug) LogProcMessage("Debug mode is disabled");
@@ -486,13 +460,9 @@ void termination_handler(int signum)
 	LogProcMessage(sbuf.c_str());
       }
     }
-    sigprocmask(SIG_SETMASK, &old_set, NULL);
     return;
   }
   if(signum == SIGUSR2) {
-    signal(SIGUSR2, termination_handler);
-    sigfillset(&mask_set);
-    sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
     LogProcMessage("Process received SIGUSR2, raising debug level");
 
     if(servercfg->debug) {
@@ -517,9 +487,47 @@ void termination_handler(int signum)
 	LogProcMessage(sbuf.c_str());
       }
     }
-    sigprocmask(SIG_SETMASK, &old_set, NULL);
     return;
   }
+}
+
+static void get_process_signal_set(sigset_t *set)
+{
+  sigemptyset(set);
+  sigaddset(set, SIGINT);  // Ctrl-C or "kill -INT pid"
+  sigaddset(set, SIGQUIT); // Ctrl-backslash
+  sigaddset(set, SIGTERM); // "kill pid"
+  sigaddset(set, SIGHUP);  // Hangup if the tty closes with the process running
+  sigaddset(set, SIGTSTP); // Ctrl-Z
+  sigaddset(set, SIGUSR1); // "kill -USR1 pid" lowers the debug level
+  sigaddset(set, SIGUSR2); // "kill -USR2 pid" raises the debug level
+}
+
+static void *signal_thread_routine(void *)
+{
+  sigset_t set;
+  get_process_signal_set(&set);
+  while(1) {
+    int signum = 0;
+    if(sigwait(&set, &signum) != 0) continue;
+    handle_process_signal(signum);
+  }
+  return (void *)0;
+}
+
+int StartSignalThread()
+{
+  // Block the process signals in this thread. Every thread created
+  // after this inherits the mask, so the signals are only delivered
+  // to the signal thread through sigwait().
+  sigset_t set;
+  get_process_signal_set(&set);
+  if(pthread_sigmask(SIG_BLOCK, &set, 0) != 0) return 1;
+
+  pthread_t tid;
+  if(pthread_create(&tid, 0, signal_thread_routine, 0) != 0) return 1;
+  pthread_detach(tid);
+  return 0;
 }
 
 // Pauses for a specified number of seconds. 
@@ -558,6 +566,18 @@ void mSleep(unsigned long  milliseconds)
   nSleep(nseconds);
 }
 
+gxString ShellQuote(const gxString &s)
+// Quote a string so the shell passes it as one word. Single quotes
+// inside the string are written as '\'' so they cannot end the quoted
+// string early.
+{
+  gxString quoted = s;
+  quoted.ReplaceString("'", "'\\''");
+  gxString buf;
+  buf << clear << "'" << quoted << "'";
+  return buf;
+}
+
 int RunSystemCommand(const gxString &input_command)
 {
   gxString superuser = "root";
@@ -566,7 +586,7 @@ int RunSystemCommand(const gxString &input_command)
     command = input_command;
   }
   else {
-    command << clear << servercfg->sudo_command << " \'" << input_command << "\'";
+    command << clear << servercfg->sudo_command << " " << ShellQuote(input_command);
   }
 
   if(servercfg->debug && servercfg->debug_level >= 5) {
@@ -579,22 +599,21 @@ int RunSystemCommand(const gxString &input_command)
 int RunSystemCommand(const gxString &input_command, const gxString &user, const gxString &group)
 {
   gxString superuser = "root";
+  gxString su_command;
   gxString command;
-  if(servercfg->cluster_user == superuser) {
+
 #ifdef __HAS_SU_DASH_G__
-    command << clear << "su -g " << group << " -c \'" << input_command << "\' - " << user << " >/dev/null 2>&1";
+  su_command << clear << "su -g " << ShellQuote(group) << " -c " << ShellQuote(input_command) 
+	     << " - " << ShellQuote(user);
 #else
-    command << clear << "su -c \'" << input_command << "\' - " << user << " >/dev/null 2>&1";
+  su_command << clear << "su -c " << ShellQuote(input_command) << " - " << ShellQuote(user);
 #endif
+
+  if(servercfg->cluster_user == superuser) {
+    command << clear << su_command << " >/dev/null 2>&1";
   }
   else {
-#ifdef __HAS_SU_DASH_G__
-    command << clear << servercfg->sudo_command 
-	    << " \"su -g " << group << " -c \'" << input_command << "\' - " << user << "\""; 
-#else
-    command << clear << servercfg->sudo_command 
-	    << " \"su -c \'" << input_command << "\' - " << user << "\""; 
-#endif
+    command << clear << servercfg->sudo_command << " " << ShellQuote(su_command); 
   }
 
   if(servercfg->debug && servercfg->debug_level >= 5) {

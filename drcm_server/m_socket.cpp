@@ -70,17 +70,13 @@ void CM_MessageHeader::copy(const CM_MessageHeader &ob)
 
 int CM_MessageHeader::get_word(char bytes[4])
 {
-  int a, b, c, d;
-  a = (int)bytes[0];
-  b = (int)bytes[1];
-  c = (int)bytes[2];
-  d = (int)bytes[3];
-  
-  a = a & 0xFF;
-  b = (b<<8) & 0xFF00;
-  c = (c<<16) & 0xFF0000;
-  d = (d<<24) & 0xFF000000;
-  return a + b + c + d;
+  // Assemble as unsigned so a high byte does not shift a negative value
+  unsigned int a, b, c, d;
+  a = (unsigned char)bytes[0];
+  b = (unsigned char)bytes[1];
+  c = (unsigned char)bytes[2];
+  d = (unsigned char)bytes[3];
+  return (int)(a | (b << 8) | (c << 16) | (d << 24));
 }
 
 void CM_MessageHeader::set_word(char bytes[4], int val)
@@ -526,6 +522,14 @@ int fd_error_to_string(int error_number, gxString &sbuf)
   return error_number;
 }
 
+int cm_reply_is_valid(CM_MessageHeader &cmhdr)
+{
+  if(cmhdr.get_word(cmhdr.checkword) != NET_CHECKWORD) return 0;
+  if(memcmp(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum)) != 0) return 0;
+  if(cmhdr.get_word(cmhdr.cluster_command) != CM_CMD_ACK) return 0;
+  return 1;
+}
+
 // Return 0 for pass, 1 for fail
 // error_level = -1 for fatal error
 // error_level = 1 for socket write error
@@ -578,16 +582,27 @@ int send_keep_alive(CMnode *n, int &error_level, int timeout_secs, int timeout_u
   int bytes_read = client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), timeout_secs, timeout_usecs);
   get_fd_socket_error(error_number, sbuf);
   if(bytes_read != sizeof(cmhdr)) {
+    error_level = 3;
     if(client.GetSocketError() == gxSOCKET_REQUEST_TIMEOUT) {
-      if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
-      message << clear << "ERROR - Receive timeout reading CM header from " << n->keep_alive_ip.c_str();
-    }
       error_level = 2;
+      if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
+	message << clear << "ERROR - Receive timeout reading CM header from " << n->keep_alive_ip.c_str();
+	LogDebugMessage(message.c_str());
+      }
     }
-    if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
+    else if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
       message << clear << "ERROR - Receiving CM header from " << n->keep_alive_ip.c_str();
       LogDebugMessage(message.c_str());
       message << clear << "CM header recvfrom() Return: " << bytes_read << " ENUM: " << error_number << " Message: " << sbuf;
+      LogDebugMessage(message.c_str());
+    }
+    return 1;
+  }
+
+  // Only count a reply that carries our checkword, auth hash and an ACK
+  if(!cm_reply_is_valid(cmhdr)) {
+    if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
+      message << clear << "ERROR - Bad keep alive reply from " << n->keep_alive_ip.c_str();
       LogDebugMessage(message.c_str());
     }
     error_level = 3;

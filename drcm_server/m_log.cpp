@@ -175,8 +175,7 @@ void log_message(gxString &message, int is_proc_message, int is_debug)
   if(is_proc_message == 1) {
     if(servercfg->loq_queue_proc_nodes) {
       int queue_proc_count = servercfg->QUEUE_PROC_COUNT();
-      if(queue_proc_count < 0) queue_proc_count = 0;
-      if(queue_proc_count ==  servercfg->log_queue_proc_size) queue_proc_count--;
+      if(queue_proc_count < 0 || queue_proc_count >= servercfg->log_queue_proc_size) queue_proc_count = 0;
       memset(servercfg->loq_queue_proc_nodes[queue_proc_count].sbuf, 0, 255);
       memmove(servercfg->loq_queue_proc_nodes[queue_proc_count].sbuf, message.c_str(), slen);
       servercfg->loq_queue_proc_nodes[queue_proc_count].sbuf[254] = 0;
@@ -186,8 +185,7 @@ void log_message(gxString &message, int is_proc_message, int is_debug)
   else if(is_debug == 1) {
     if(servercfg->loq_queue_debug_nodes) {
       int queue_debug_count = servercfg->QUEUE_DEBUG_COUNT();
-      if(queue_debug_count < 0) queue_debug_count = 0;
-      if(queue_debug_count ==  servercfg->log_queue_debug_size) queue_debug_count--;
+      if(queue_debug_count < 0 || queue_debug_count >= servercfg->log_queue_debug_size) queue_debug_count = 0;
       memset(servercfg->loq_queue_debug_nodes[queue_debug_count].sbuf, 0, 255);
       memmove(servercfg->loq_queue_debug_nodes[queue_debug_count].sbuf, message.c_str(), slen);
       servercfg->loq_queue_debug_nodes[queue_debug_count].sbuf[254] = 0;
@@ -197,8 +195,7 @@ void log_message(gxString &message, int is_proc_message, int is_debug)
   else {
     if(servercfg->loq_queue_nodes) {
       int queue_node_count = servercfg->QUEUE_NODE_COUNT();
-      if(queue_node_count < 0) queue_node_count = 0;
-      if(queue_node_count ==  servercfg->log_queue_size) queue_node_count--;
+      if(queue_node_count < 0 || queue_node_count >= servercfg->log_queue_size) queue_node_count = 0;
       memset(servercfg->loq_queue_nodes[queue_node_count].sbuf, 0, 255);
       memmove(servercfg->loq_queue_nodes[queue_node_count].sbuf, message.c_str(), slen);
       servercfg->loq_queue_nodes[queue_node_count].sbuf[254] = 0;

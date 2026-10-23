@@ -114,6 +114,9 @@ if [ -z "${DRCMdir}" ]; then export DRCMdir="/etc/drcm"; fi
 if [ -z "${VARdir}" ]; then export VARdir="/var/run/drcm"; fi
 if [ -z "${RYSNC}" ]; then export RYSNC="rsync"; fi
 if [ -z "${SSH}" ]; then export SSH="ssh"; fi
+# Host keys of the other nodes must be known: accept-new trusts a key
+# the first time and refuses a key that changes
+if [ -z "${DRCM_SSH_OPTS}" ]; then export DRCM_SSH_OPTS="-o StrictHostKeyChecking=accept-new"; fi
 if [ -z "${SCP}" ]; then export SCP="scp"; fi
 if [ -z "${IP}" ]; then export IP="ip"; fi
 if [ -z "${EXPR}" ]; then export EXPR="expr"; fi
@@ -195,7 +198,7 @@ function RsyncMirror()
 	return
     fi
 
-    ${SSH} -o stricthostkeychecking=no -n ${BACKUPNODE} mkdir -p ${1}  >> ${LOGfile} 2>&1
+    ${SSH} ${DRCM_SSH_OPTS} -n ${BACKUPNODE} mkdir -p ${1}  >> ${LOGfile} 2>&1
     if [ $? -ne 0 ]
 	then
 	echo "SSH command to ${BACKUPNODE} failed" | tee -a ${LOGfile}
@@ -227,7 +230,7 @@ function RsyncCopy()
 	return
     fi
 
-    ${SSH} -o stricthostkeychecking=no -n ${BACKUPNODE} mkdir -p ${1}  >> ${LOGfile} 2>&1
+    ${SSH} ${DRCM_SSH_OPTS} -n ${BACKUPNODE} mkdir -p ${1}  >> ${LOGfile} 2>&1
     if [ $? -ne 0 ]
 	then
 	echo "SSH command to ${BACKUPNODE} failed" | tee -a ${LOGfile}
@@ -238,7 +241,7 @@ function RsyncCopy()
     fi
 
     echo "Syncing up ${1} with rsync copy" | tee -a ${LOGfile}
-    ${RYSNC} ${RYSNCcopyargs} ${SSH} ${1}/. ${BACKUPNODE}:${1}/. >> ${LOGfile} 2>&1
+    ${RYSNC} ${RYSNCcopyargs} -e ${SSH} ${1}/. ${BACKUPNODE}:${1}/. >> ${LOGfile} 2>&1
     if [ $? -ne 0 ]
 	then
 	echo "${1} backup failed" | tee -a ${LOGfile}
@@ -318,7 +321,7 @@ if [ "${hasfailedover}" == "FALSE" ]
 		echo "Our fail over was more then ${HRS} ago." | tee -a ${LOGfile}
 		echo "Removing all flagback flags and exiting" | tee -a ${LOGfile}
 		rm -f ${VARdir}/${SERVICENAME}_failback_sync_flag
-		${SSH} -o stricthostkeychecking=no "${FAILBACKNODE}" "rm -f ${VARdir}/${SERVICENAME}_failback_sync_flag" 2>&1
+		${SSH} ${DRCM_SSH_OPTS} "${FAILBACKNODE}" "rm -f ${VARdir}/${SERVICENAME}_failback_sync_flag" 2>&1
 		RemoveLockFile
 		exit 0
 	    else
@@ -350,8 +353,8 @@ if [ "${hasfailedover}" == "TRUE" ]
     else
 	echo "Primary cluster node is up" | tee -a ${LOGfile}
 	echo "Writing failback sync flag to ${FAILBACKNODE}" | tee -a ${LOGfile}
-	${SSH} -o stricthostkeychecking=no ${FAILBACKNODE} mkdir -p ${VARdir} >> ${LOGfile} 2>&1
-	${SCP} -o stricthostkeychecking=no ${VARdir}/${SERVICENAME}_failback_sync_flag ${FAILBACKNODE}:${VARdir}/${SERVICENAME}_failback_sync_flag
+	${SSH} ${DRCM_SSH_OPTS} ${FAILBACKNODE} mkdir -p ${VARdir} >> ${LOGfile} 2>&1
+	${SCP} ${DRCM_SSH_OPTS} ${VARdir}/${SERVICENAME}_failback_sync_flag ${FAILBACKNODE}:${VARdir}/${SERVICENAME}_failback_sync_flag
     fi
     RemoveLockFile
     exit 0
@@ -431,11 +434,11 @@ if [ "${BACKUPNODE}" == "${FAILBACKNODE}" ]
     then
     echo "Removing all flagback flags and exiting" | tee -a ${LOGfile}
     rm -f ${VARdir}/${SERVICENAME}_failback_sync_flag
-    ${SSH} -o stricthostkeychecking=no "${FAILBACKNODE}" rm -f ${VARdir}/${SERVICENAME}_failback_sync_flag 2>&1
+    ${SSH} ${DRCM_SSH_OPTS} "${FAILBACKNODE}" rm -f ${VARdir}/${SERVICENAME}_failback_sync_flag 2>&1
 fi
 
 RemoveLockFile
-exit 0
+exit ${error_level}
 # ----------------------------------------------------------- 
 # ******************************* 
 # ********* End of File ********* 

@@ -45,7 +45,7 @@ function start() {
 	error_level=0
     else
 	echo "Starting ${CMPROCNAME}"
-	if [ -z ${ARGS} ]; then 
+	if [ -n "${ARGS}" ]; then 
 	    ${CMPROC} --config-file=${CFGFILE} ${ARGS} > /dev/null &
 	else 
 	    ${CMPROC} --config-file=${CFGFILE} > /dev/null &
@@ -58,23 +58,18 @@ function start() {
 function stop() {
     pid=$(ps -ef | grep ${CMPROCNAME} | grep -- ${CFGFILE} | grep -v grep | awk '{ print $2 }')
     if [ ! -z $pid ]; then
-	pids=$(ps -ef | grep ${pid} | grep -v grep | awk '{ print $2 }')
-	for p in ${pids}
+	# Only the server's own child processes, matched by parent PID
+	for p in $(ps -o pid= --ppid ${pid})
 	do
-	    ppid=$(ps -ef | grep ${pid} | grep -v grep | awk '{ print $3 }')
-	    if [ ! -z ${ppid} ]; then
-		if [ ${ppid} -eq ${pid} ]; then 
-		    echo "Stopping child process ${p}"
-		    kill ${p}
-		fi
-	    fi
+	    echo "Stopping child process ${p}"
+	    kill ${p}
 	done
 	echo "Stopping ${CMPROCNAME}"
 	kill ${pid}
 	sleep 20
 	pid=$(ps -ef | grep ${CMPROCNAME} | grep -- ${CFGFILE} | grep -v grep | awk '{ print $2 }')
 	if [ ! -z $pid ]; then
-	    echo "Forcing CM shutdown after $count retries"
+	    echo "Forcing CM shutdown after 20 seconds"
 	    kill -9 ${pid}
 	    error_level=1
 	    echo "${CMPROCNAME} stopped"

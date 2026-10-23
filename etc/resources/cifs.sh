@@ -118,7 +118,7 @@ if [ ! -z ${passwordage} ]; then
     last_password_change=$(cat /var/run/drcm/${dfshost}.last)
     etime=$(date +%s)
     expired_etime=$(echo "${last_password_change} + (((60*60)*24)*${passwordage})" | bc)
-    if [ -z  ${etime} ] && [ -z ${expired_etime} ]; then
+    if [ -n "${etime}" ] && [ -n "${expired_etime}" ]; then
 	if [ ${etime} -ge ${expired_etime} ]; then
 	    echo "${expired_etime}" > /var/run/drcm/${dfshost}.expired
 	else 
@@ -136,6 +136,22 @@ if [ -z ${password} ]; then
     echo "ERROR - Windows service account password not set in DFS auth file"
     exit 1
 fi
+
+# Write the username and password to a private credentials file so
+# the password is not on the mount command line, where any user can
+# see it with ps.
+credfile=""
+function RemoveCredentials() {
+    if [ -n "${credfile}" ]; then rm -f "${credfile}"; fi
+}
+function MakeCredentials() {
+    if [ -z "${credfile}" ]; then
+	mkdir -p /var/run/drcm
+	credfile=$(umask 077; mktemp /var/run/drcm/.cifs_cred.XXXXXX)
+	trap RemoveCredentials EXIT
+    fi
+    printf 'username=%s\npassword=%s\n' "${username}" "${password}" > "${credfile}"
+}
 
 function IsMounted() {
     is_mounted=0;
@@ -160,10 +176,11 @@ function Mount() {
 	if [ ! -d ${target} ]; then
 	    # Target DIR does not exist ${target}
 	    mkdir -vp ${target}
-	    chmod 777 ${target}
+	    chmod 755 ${target}
 	fi
 	cat /dev/null > ${target}/not_mounted
-	mount -t cifs ${source} ${target} -o username=${username},password=${password},dir_mode=${dir_mode},file_mode=${file_mode},uid=${uid},gid=${gid}
+	MakeCredentials
+	mount -t cifs ${source} ${target} -o credentials=${credfile},dir_mode=${dir_mode},file_mode=${file_mode},uid=${uid},gid=${gid}
 	IsMounted
 	if [ $is_mounted -eq 0 ]; then
 	    echo "ERROR - Cannot mount ${source} to ${target}" 
@@ -196,7 +213,8 @@ function Remount() {
 	echo "${target} is not mounted"
 	Mount
     else
-	mount -t cifs ${source} ${target} -o remount,username=${username},password=${password},dir_mode=${dir_mode},file_mode=${file_mode},uid=${uid},gid=${gid}
+	MakeCredentials
+	mount -t cifs ${source} ${target} -o remount,credentials=${credfile},dir_mode=${dir_mode},file_mode=${file_mode},uid=${uid},gid=${gid}
 	IsMounted
 	if [ $is_mounted -eq 0 ]; then
 	    echo "ERROR - ${target} unmounted following remount"
@@ -221,21 +239,19 @@ function Watch()
     fi
 
     # Checking for stale NFS mounts
-    ls -l --color=none ${target} &> /tmp/ls.$$
-    grep -i "stale" /tmp/ls.$$ | grep -i "handle" &> /dev/null
+    ls -l --color=none ${target} 2>&1 | grep -i "stale" | grep -i "handle" &> /dev/null
     if [ $? -eq 0 ]
     then 
 	echo "FAIL - ${source} ${target} is stale"
 	echo "Will attempt a remount"
 	mount -o remount ${target}
-	ls -l ${target} &> /tmp/ls.$$
-	grep -i "stale" /tmp/ls.$$ | grep -i "handle" &> /dev/null
+	ls -l --color=none ${target} 2>&1 | grep -i "stale" | grep -i "handle" &> /dev/null
 	if [ $? -eq 0 ]
 	then
 	    echo "ERROR - ${source} ${target} is stale after remount"
 	    echo "Will attempt a unmount and mount"
 	    umount -lf ${target}
-	    mount ${source} ${target}
+	    Mount
 	    IsMounted
 	    if [ $is_mounted -eq 0 ]; then
 		echo "ERROR - Cannot mount ${source} to ${target}" 
@@ -243,7 +259,6 @@ function Watch()
 	    fi
 	fi
     fi
-    rm -f /tmp/ls.$$
 }
 
 case "${3}" in

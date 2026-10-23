@@ -68,11 +68,12 @@ case "${4}" in
 	    error_level=$?
 	    if [ $error_level -ne 0 ]; then 
 		echo "ERROR - Command failed: nmcli con mod ${ETHINT} +ipv4.address ${1}/${2}"
-	    fi
-	    nmcli device reapply enp1s0
-	    error_level=$?
-	    if [ $error_level -ne 0 ]; then 
-		echo "ERROR - Command failed: nmcli device reapply enp1s0"
+	    else
+		nmcli device reapply ${ETHINT}
+		error_level=$?
+		if [ $error_level -ne 0 ]; then 
+		    echo "ERROR - Command failed: nmcli device reapply ${ETHINT}"
+		fi
 	    fi
 	else 
 	    echo "INFO - ${1}/${2} dev ${ETHINT} already added" 
@@ -86,11 +87,12 @@ case "${4}" in
 	    error_level=$?
 	    if [ $error_level -ne 0 ]; then 
 		echo "ERROR - Command failed: nmcli con mod ${ETHINT} -ipv4.address ${1}/${2}"
-	    fi
-	    nmcli device reapply enp1s0
-	    error_level=$?
-	    if [ $error_level -ne 0 ]; then 
-		echo "ERROR - Command failed: nmcli device reapply enp1s0"
+	    else
+		nmcli device reapply ${ETHINT}
+		error_level=$?
+		if [ $error_level -ne 0 ]; then 
+		    echo "ERROR - Command failed: nmcli device reapply ${ETHINT}"
+		fi
 	    fi
 	else 
 	    echo "INFO - ${1}/${2} dev ${ETHINT} already deleted" 

@@ -42,16 +42,13 @@ int main(int argc, char **argv)
   // for sockets with no readers
   signal(SIGPIPE, SIG_IGN);
 
-  // Handle UNIX termination signals
-  signal(SIGINT, termination_handler);  // Ctrl-C or "kill INT pid"
-  signal(SIGQUIT, termination_handler); // Ctrl-backslash
-  signal(SIGTERM, termination_handler); // Kill command "kill pid"
-  signal(SIGHUP, termination_handler);  // Hangup if pstty closes with process running
-  signal(SIGKILL, termination_handler); // Used by kill -9
-  signal(SIGTSTP, termination_handler); // Ctrl-Z, resume with fg command
-  signal(SIGABRT, termination_handler); // Ctrl-backslash
-  signal(SIGUSR1, termination_handler); // kill -USR1
-  signal(SIGUSR2, termination_handler); // kill -USR2
+  // Handle UNIX termination signals in a dedicated thread so the
+  // shutdown code does not run inside a signal handler
+  if(StartSignalThread() != 0) {
+    servercfg->verbose = 1;
+    NT_print("ERROR - Cannot start the signal handler thread");
+    return 1;
+  }
     
   // Allow sockets to close before any core dumps    
 #ifndef __DEBUG__
@@ -59,21 +56,11 @@ int main(int argc, char **argv)
   signal(SIGSEGV, termination_handler); // Illegal memory access
 #endif
 
- // Process command ling arguments and files 
-  int narg;
-  char *arg = argv[narg = 1];
-  while(narg < argc) {
-    if(arg[0] != '\0') {
-      if(arg[0] == '-') { // Look for command line arguments
-	// Exit if argument is not valid or argument signals program to exit
-	if(ProcessArgs(argc, argv) != 0) {
-	  servercfg->verbose = 1;
-	  NT_print("ERROR - Bad -- argument, use --help to print valid -- arguments");
-	  return 1; 
-	}
-      }
-    }
-    arg = argv[++narg];
+  // Exit if an argument is not valid or an argument signals the program to exit
+  if(argc > 1 && ProcessArgs(argc, argv) != 0) {
+    servercfg->verbose = 1;
+    NT_print("ERROR - Bad -- argument, use --help to print valid -- arguments");
+    return 1; 
   }
 
   if(servercfg->check_config) {
@@ -157,8 +144,9 @@ int run_server()
     if(!e) {
       servercfg->verbose = 1;
       NT_print("ERROR - ${USER} var not set in your ENV");
+      return 1;  // We cannot continue
     }
-    user = getenv("USER");
+    user = e;
     if(servercfg->cluster_user != user.c_str()) {
       servercfg->verbose = 1;
       message << clear << "ERROR - Username starting CM server is " << user;
@@ -268,7 +256,7 @@ int run_server()
   servercfg->log_thread = log.CreateThread();
   if(servercfg->log_thread->GetThreadError() != gxTHREAD_NO_ERROR) {
     NT_print("ERROR - Fatal error starting log thread");
-    NT_print(servercfg->udp_server_thread->ThreadExceptionMessage());
+    NT_print(servercfg->log_thread->ThreadExceptionMessage());
     return 1;
   }
 
@@ -441,8 +429,9 @@ int run_client()
     if(!e) {
       servercfg->verbose = 1;
       NT_print("ERROR - ${USER} var not set in your ENV");
+      return 1;  // We cannot continue
     }
-    user = getenv("USER");
+    user = e;
     if(servercfg->cluster_user != user.c_str()) {
       servercfg->verbose = 1;
       message << clear << "ERROR - Username starting CM client is " << user;
@@ -506,7 +495,7 @@ int run_client()
   servercfg->log_thread = log_t.CreateThread();
   if(servercfg->log_thread->GetThreadError() != gxTHREAD_NO_ERROR) {
     NT_print("ERROR - Fatal error starting log thread");
-    NT_print(servercfg->udp_server_thread->ThreadExceptionMessage());
+    NT_print(servercfg->log_thread->ThreadExceptionMessage());
     return 1;
   }
 

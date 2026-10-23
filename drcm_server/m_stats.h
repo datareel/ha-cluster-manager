@@ -40,10 +40,7 @@ Stat functions for Datareel cluster manager.
 
 // Stats message queue
 struct CMstats {
-  CMstats() {
-    stats_is_locked = 0;
-    stats_retries = 3;
-  }
+  CMstats() { }
 
   int Add(gxString &s, int check_existing = 0);
   int Remove(const gxString &s);
@@ -53,11 +50,13 @@ struct CMstats {
 
 private:
   gxList<gxString> stats;
-  gxMutex stats_lock;
-  gxCondition stats_cond;
-  int stats_is_locked;
-  int stats_retries;
+  gxMutex stats_lock; // Guards the stats list
 };
+
+// Returns 1 if a raw stats buffer from another node lists the
+// resource stat, such as "backup_ip:web". Matches the whole name, so
+// "apps1" does not match "apps10".
+int stats_buffer_has(const gxString &buffer, const gxString &stat);
 
 #endif // __DRCM_STATS_HPP__
 // ----------------------------------------------------------- // 
