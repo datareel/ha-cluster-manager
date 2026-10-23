@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -724,7 +724,7 @@ void *gxThreadAPIWrapper::apiExitThread(gxThread_t *thread, int exit_code)
 #endif // __WIN32__ directives
 	     
 #elif defined (__POSIX__)
-  pthread_exit((void *)exit_code);
+  pthread_exit((void *)(intptr_t)exit_code); // 10/14/2026: Widen before the pointer cast
 	     
 #else
 #error You must define a native API: __WIN32__ or __UNIX__

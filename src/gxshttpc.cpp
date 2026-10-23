@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -78,12 +78,14 @@ connections.
 #include "strutil.h"
 #include "gxs_ver.h"
 
+#if defined (__LINUX__)
 #if defined (__wxWIN201__) || (__wxWIN291__)
 #include "wx2incs.h"  // Include files for wxWindows version 2.X
 #endif
 
 #if defined (__wxWIN302__)
 #include "wx3incs.h"  // Include files for wxWindows version 3.X
+#endif
 #endif
 
 #ifdef __BCC32__

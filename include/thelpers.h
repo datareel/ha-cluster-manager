@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 08/28/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -196,6 +196,8 @@ public:
   gxSemaphore_t() {
     is_initialized = 0; process_type = gxPROCESS_PRIVATE;
     semaphore_error = gxSEMAPHORE_NO_ERROR;
+    // 10/14/2026: The value fields were left uninitialized
+    value = value_after_operation = 1;
   }
   ~gxSemaphore_t() { }
 

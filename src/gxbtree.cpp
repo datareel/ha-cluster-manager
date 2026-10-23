@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/22/2000 
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -1590,20 +1590,25 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key,
       // follow this child link.
       curr_address = btree_header.root;
     }
-    curr_node.LoadKey(compare_key, key_location);
+    // 10/14/2026: Only load and compare a key that exists. With
+    // key_location -1 LoadKey() read before the node's key buffer, and
+    // the search restarts at the root in that case anyway.
+    else {
+      curr_node.LoadKey(compare_key, key_location);
 #ifndef __USE_SINGLE_COMPARE__
-    if(key > compare_key) {
-      // This key is greater then all the entries in this node so do not
-      // follow this child link.
-      curr_address = btree_header.root;
-    }
+      if(key > compare_key) {
+	// This key is greater then all the entries in this node so do not
+	// follow this child link.
+	curr_address = btree_header.root;
+      }
 #else
-    if(key.CompareKey(compare_key) > 0) {
-      // This key is greater then all the entries in this node so do not
-      // follow this child link.
-      curr_address = btree_header.root;
-    }
+      if(key.CompareKey(compare_key) > 0) {
+	// This key is greater then all the entries in this node so do not
+	// follow this child link.
+	curr_address = btree_header.root;
+      }
 #endif // __USE_SINGLE_COMPARE__
+    }
   }
 
   // Did not find the key in the current node. There are no links that 
@@ -2385,20 +2390,25 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	  // follow this child link.
 	  curr_node = btree_header.root;
 	}
-	curr_node->LoadKey(compare_key, key_location);
+	// 10/14/2026: Only load and compare a key that exists. With
+	// key_location -1 LoadKey() read before the bucket's key buffer
+	// (heap overflow in the btree_cached example).
+	else {
+	  curr_node->LoadKey(compare_key, key_location);
 #ifndef __USE_SINGLE_COMPARE__
-	if(key > compare_key) {
-	  // This key is greater then all the entries in this node so do not
-	  // follow this child link.
-	  curr_node = btree_header.root;
-	}
+	  if(key > compare_key) {
+	    // This key is greater then all the entries in this node so do not
+	    // follow this child link.
+	    curr_node = btree_header.root;
+	  }
 #else
-	if(key.CompareKey(compare_key) > 0) {
-	  // This key is greater then all the entries in this node so do not
-	  // follow this child link.
-	  curr_node = btree_header.root;
-	}
+	  if(key.CompareKey(compare_key) > 0) {
+	    // This key is greater then all the entries in this node so do not
+	    // follow this child link.
+	    curr_node = btree_header.root;
+	  }
 #endif // __USE_SINGLE_COMPARE__
+	}
       }
       else {
 	curr_node = btree_header.root;	

@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/18/1997
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -502,7 +502,10 @@ gxDatabaseError POD::CloseIndex(unsigned index_number)
 {
   // PC-lint 09/15/2005: Possible use of null pointer
   if(!openindexfile) return gxDBASE_NO_ERROR;
-  if(!openindexfile->index_file) return gxDBASE_NO_ERROR;
+  // 10/14/2026: Check the index number and its entry (the index_file array
+  // itself can never be null)
+  if(index_number >= openindexfile->n_indexes) return gxDBASE_NO_ERROR;
+  if(!openindexfile->index_file[index_number]) return gxDBASE_NO_ERROR;
 
   gxBtree *btree = openindexfile->index_file[index_number]->btree;
  
@@ -593,9 +596,12 @@ gxDatabaseError POD::OpenIndex(const char *fname, unsigned index_number,
     return gxDBASE_NULL_PTR;
 #endif
   }
-  if(!openindexfile->index_file) {
-#ifdef __CPP_EXCEPTIONS__
+  // 10/14/2026: Check the index number and its entry (the index_file array
+  // itself can never be null), and free the B-tree on both error paths
+  if((index_number >= openindexfile->n_indexes) ||
+     (!openindexfile->index_file[index_number])) {
     delete btree;
+#ifdef __CPP_EXCEPTIONS__
     throw gxCDatabaseException();
 #else
     return gxDBASE_NULL_PTR;
@@ -629,9 +635,10 @@ gxBtree *POD::Index(unsigned index_number)
 // index number.
 {
   if(!openindexfile) return 0;
-  if(index_number > openindexfile->n_indexes) return 0;
+  // 10/14/2026: Valid index numbers are 0 to n_indexes-1 (was >)
+  if(index_number >= openindexfile->n_indexes) return 0;
   // PC-lint 09/15/2005: Possible null pointer
-  if(!openindexfile->index_file) return 0;
+  if(!openindexfile->index_file[index_number]) return 0;
   return openindexfile->index_file[index_number]->btree;
 }
 
@@ -640,9 +647,10 @@ gxBtree *POD::Index(unsigned index_number) const
 // index number.
 {
   if(!openindexfile) return 0;
-  if(index_number > openindexfile->n_indexes) return 0;
+  // 10/14/2026: Valid index numbers are 0 to n_indexes-1 (was >)
+  if(index_number >= openindexfile->n_indexes) return 0;
   // PC-lint 09/15/2005: Possible null pointer
-  if(!openindexfile->index_file) return 0;
+  if(!openindexfile->index_file[index_number]) return 0;
   return openindexfile->index_file[index_number]->btree;
 }
 

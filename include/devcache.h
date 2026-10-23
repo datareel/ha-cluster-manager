@@ -6,8 +6,8 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -100,7 +100,7 @@ public:
   ~gxDeviceBucket() { }
 
 private: // Disallow copying and assignment
-  gxDeviceBucket(const gxDeviceBucket &ob) { }
+  gxDeviceBucket(const gxDeviceBucket &ob) : MemoryBuffer() { }
   void operator=(const gxDeviceBucket &ob) { }
   
 public: // Cache functions
@@ -137,7 +137,8 @@ class GXDLCODE_API gxDeviceBucketCache
 {
 public:
   gxDeviceBucketCache(unsigned num) {
-    if(num == 0) num = 1; devptr = 0; buckets = 0; ConstructCache(num);
+    if(num == 0) num = 1;
+    devptr = 0; buckets = 0; ConstructCache(num);
   }
   ~gxDeviceBucketCache() { DestroyCache(); }
 

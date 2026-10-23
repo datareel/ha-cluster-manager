@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -482,7 +482,10 @@ void gxThread::RebuildThreadPool(thrPool *thread_pool)
 	if(next->GetNext() == 0) { // This is the last node in the pool
 	  thread = thread_pool->RemoveNode(curr);
 	  if(thread) DestroyThread(thread, 0);
-	  thread_pool->MakeEmpty(); // The pool is now empty
+	  // 10/14/2026: Removed a MakeEmpty() call here. It dropped every
+	  // node still in the pool when the last node had exited, losing
+	  // the running threads and leaking their nodes. RemoveNode()
+	  // already updates the head and tail pointers.
 	  return;
 	}
 	else { // We are somewhere in the middle of the list

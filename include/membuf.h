@@ -6,8 +6,8 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -84,7 +84,7 @@ public:
     mptr = 0; l_length = d_length = 0; Alloc(bytes);
   }
   MemoryBuffer(const void *buf, __MEMBUF_INT__ bytes);
-  ~MemoryBuffer() { if(mptr) delete mptr; }
+  ~MemoryBuffer() { if(mptr) delete[] mptr; } // 10/14/2026: Was a scalar delete of new[]
   MemoryBuffer(const MemoryBuffer &buf);
   MemoryBuffer &operator=(const MemoryBuffer &buf);
 

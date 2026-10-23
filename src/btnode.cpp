@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/22/2000 
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -95,7 +95,7 @@ FAU BtreeNode::GetBranch(BtreeKeyLocation_t key_location)
   // from the 0th branch on.
   char *ptr = key_entries + (key_size * key_location);
   FAU right_child;
-  memmove(&right_child, ptr, sizeof(FAU));
+  memmove((void *)&right_child, (const void *)ptr, sizeof(FAU));
   return right_child;
 }
 
@@ -157,7 +157,7 @@ int BtreeNode::FindKeyLocation(const DatabaseKeyB &key,
 
   while(key_location >= (BtreeKeyLocation_t)0) {
     char *ptr = key_entries + (key_size * key_location);
-    memmove(&compare_key.right_child, ptr, sizeof(FAU));
+    memmove((void *)&compare_key.right_child, (const void *)ptr, sizeof(FAU));
     memmove(compare_key.db_key, ptr+sizeof(FAU), compare_key.KeySize());
 #ifndef __USE_SINGLE_COMPARE__ // Use dual compare by default
     if(key > compare_key) return 1;
@@ -176,7 +176,7 @@ void BtreeNode::LoadKey(DatabaseKeyB &key, BtreeKeyLocation_t key_location)
 // Copies the key at the specified location into the "key" variable.
 {
   char *ptr = key_entries + (key_size * key_location);
-  memmove(&key.right_child, (void *)ptr, sizeof(FAU));
+  memmove((void *)&key.right_child, (const void *)(void *)ptr, sizeof(FAU));
   memmove(key.db_key, ptr+sizeof(FAU), key.KeySize());
 }
 

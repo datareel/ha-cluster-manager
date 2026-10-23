@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/2002
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -194,12 +194,14 @@ public:
   gxDBCacheNode(const gxDBCacheNode &ob) {
     segment = ob.segment; 
     cache = ob.cache; 
-    ds_address = (FAU_t)0;
+    // 10/14/2026: Was set to 0, which is a valid file address for the
+    // raw file cache. -1 is the "not linked" value used by this class.
+    ds_address = (FAU_t)-1;
   }
   gxDBCacheNode& operator=(const gxDBCacheNode &ob) {
     segment = ob.segment; 
     cache = ob.cache;
-    ds_address = (FAU_t)0;
+    ds_address = (FAU_t)-1; // 10/14/2026: Was 0, see the copy constructor
     return *this;
   }
   ~gxDBCacheNode() { }

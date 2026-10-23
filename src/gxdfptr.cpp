@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997 
-// Date Last Modified: 05/25/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -484,7 +484,7 @@ int dio_close(DIOFILE *fp)
   if(!fp) return -1;
   rv = POSIX_CLOSE(fp->fd);
   if(rv < 0) return rv;
-  if(fp->fname) delete fp->fname;
+  if(fp->fname) delete[] fp->fname; // 10/14/2026: Was a scalar delete of new[]
   delete fp;
   fp = 0;
   return 0;
@@ -542,12 +542,13 @@ FILEOFF_t dio_seek(DIOFILE *fp, FILEOFF_t offset, int whence)
   if(offset > dio_eof(fp)) {
     fp->seek_past_eof = 0;
     if(fp->fill_holes == 1) {
-      if((fp->access && O_RDWR) || (fp->access && O_WRONLY)) {
+      // 10/14/2026: Test the access flags with bitwise & (was logical &&)
+      if((fp->access & O_RDWR) || (fp->access & O_WRONLY)) {
 	nbytes = offset - dio_eof(fp);
 	buf = new char[nbytes];
 	memset(buf, 0, nbytes);
 	dio_write(fp, (void *)buf, nbytes);
-	delete buf;
+	delete[] buf; // 10/14/2026: Was a scalar delete of new[]
       }
     }
   }

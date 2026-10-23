@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/05/1997  
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -77,17 +77,16 @@ gxINT16::operator __SWORD__() const
   return PackBits();
 }
 
+// 10/14/2026: Combine the bytes in unsigned arithmetic. Shifting the
+// sign-extended signed bytes was undefined behavior for negative bytes
+// and for values that overflow the signed type.
 __SWORD__ gxINT16::PackBits() const
 {
-  __SWORD__ a, b;
-  
-  a = (__SWORD__)byte[0];
-  b = (__SWORD__)byte[1];
-
-  a = a & 0xFF;
-  b = (b<<8) & 0xFF00;
-
-  return a + b;
+  __USWORD__ val = 0;
+  for(int i = 1; i >= 0; i--) {
+    val = (__USWORD__)((val << 8) | (__USWORD__)(__UBYTE__)byte[i]);
+  }
+  return (__SWORD__)val;
 }
 
 void gxINT16::UnPackBits(__SWORD__ val)

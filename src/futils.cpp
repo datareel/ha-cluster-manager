@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/30/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -1331,7 +1331,15 @@ GXDLCODE_API long futils_filelength(const char *fname)
     // If the file is larger than 2.1 GB use the CreateFile() call.
     // NOTE: The CreateFile() call can be extremly slow in recursive
     // functions so the stat() call is used first.
-    HANDLE hFile = CreateFile(TEXT(fname), 
+
+#ifdef _UNICODE
+
+#ifdef __VS2026__
+    const char* narrowString = fname;
+    wchar_t wideBuffer[1024];
+    MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
+    
+    HANDLE hFile = CreateFile(wideBuffer,
 			      GENERIC_READ,
 			      FILE_SHARE_READ|FILE_SHARE_WRITE,
 			      NULL, // No security
@@ -1339,6 +1347,29 @@ GXDLCODE_API long futils_filelength(const char *fname)
 			      FILE_ATTRIBUTE_NORMAL, 
 			      NULL // No attr. template 
 			      );
+#else
+    USES_CONVERSION;
+    HANDLE hFile = CreateFile(A2T((char*)fname), 
+			      GENERIC_READ,
+			      FILE_SHARE_READ|FILE_SHARE_WRITE,
+			      NULL, // No security
+			      OPEN_EXISTING, 
+			      FILE_ATTRIBUTE_NORMAL, 
+			      NULL // No attr. template 
+			      );
+
+
+#endif
+#else
+    HANDLE hFile = CreateFile((char *)fname,
+			      GENERIC_READ,
+			      FILE_SHARE_READ|FILE_SHARE_WRITE,
+			      NULL, // No security
+			      OPEN_EXISTING, 
+			      FILE_ATTRIBUTE_NORMAL, 
+			      NULL // No attr. template 
+			      );
+#endif
     
     // Could not open the specified file
     if(hFile == INVALID_HANDLE_VALUE) {
@@ -1464,17 +1495,33 @@ GXDLCODE_API DIR *futils_opendir(const char *dirname)
   dirp = (DIR *)malloc(sizeof(DIR));
   if(dirp == NULL) return NULL;
 
+#ifdef __VS2026__
+  // Position the directory stream to the first entry
+  dirp->dd_buf.d_ino = FindFirstFile(TEXT("*.*"), &dirp->dd_buf.file);
+#else
   // Position the directory stream to the first entry
   dirp->dd_buf.d_ino = FindFirstFile("*.*", &dirp->dd_buf.file);
+#endif
+  
   if(dirp->dd_buf.d_ino == INVALID_HANDLE_VALUE) {
     free(dirp);
     return NULL;
   }
   
   // Initialize the DIR variables
+#ifdef __VS2026__
+  strcpy(dirp->dd_buf.d_name, (const char *)dirp->dd_buf.file.cFileName);
+#else
   strcpy(dirp->dd_buf.d_name, dirp->dd_buf.file.cFileName);
+#endif
+  
   dirp->dd_buf.d_reclen = dirp->dd_buf.file.nFileSizeLow;
+#ifdef __VS2026__
+  dirp->dd_buf.d_namlen = strlen((const char *)dirp->dd_buf.file.cFileName);
+#else
   dirp->dd_buf.d_namlen = strlen(dirp->dd_buf.file.cFileName);
+#endif
+  
   dirp->dd_loc = 0;
   dirp->dd_fd = -1;
   dirp->dd_size = dirp->dd_buf.file.nFileSizeLow;
@@ -1521,9 +1568,19 @@ GXDLCODE_API struct dirent *futils_readdir(DIR *dirp, dirent *entry)
 
   if(FindNextFile(dirp->dd_buf.d_ino, &dirp->dd_buf.file)) {
     dirp->dd_loc++;
+#ifdef __VS2026__
+    strcpy(dirp->dd_buf.d_name, (const char*)dirp->dd_buf.file.cFileName);
+#else
     strcpy(dirp->dd_buf.d_name, dirp->dd_buf.file.cFileName);
+#endif
     dirp->dd_buf.d_reclen = dirp->dd_buf.file.nFileSizeLow;
-    dirp->dd_buf.d_namlen = strlen(dirp->dd_buf.file.cFileName);
+
+#ifdef __VS2026__
+    dirp->dd_buf.d_namlen = strlen((const char *)dirp->dd_buf.file.cFileName);
+#else
+    strcpy(dirp->dd_buf.d_name, dirp->dd_buf.file.cFileName);
+#endif
+
     dirp->dd_fd = -1;
     dirp->dd_size = dirp->dd_buf.file.nFileSizeLow;
     return &dirp->dd_buf;
@@ -1553,6 +1610,14 @@ GXDLCODE_API struct dirent *futils_readdir(DIR *dirp, dirent *entry)
 #elif defined (__HPUX10__)
     if(readdir_r(dirp, entry) != 0) return 0;
     return entry;
+#elif defined (__LINUX__)
+    // 10/14/2026: readdir_r() is deprecated. glibc readdir() is thread safe
+    // when each thread reads its own directory stream, so copy the
+    // entry into the caller's buffer.
+    struct dirent *d = readdir(dirp);
+    if(!d) return 0;
+    memcpy(entry, d, sizeof(struct dirent));
+    return entry;
 #else
     if(readdir_r(dirp, entry, &entry) != 0) return 0; 
     return entry;
@@ -1580,14 +1645,30 @@ GXDLCODE_API void futils_rewinddir(DIR *dirp)
   // Ensure that the directory still exists
   if(!futils_exists(dirp->dd_dirname)) return;
 
+#ifdef __VS2026__
+  // Position the directory stream to the first entry
+  dirp->dd_buf.d_ino = FindFirstFile(TEXT("*.*"), &dirp->dd_buf.file);
+#else
   // Position the directory stream to the first entry
   dirp->dd_buf.d_ino = FindFirstFile("*.*", &dirp->dd_buf.file);
+#endif
   if(dirp->dd_buf.d_ino == INVALID_HANDLE_VALUE) return;
   
   // Reset the DIR varaibles
+#ifdef __VS2026__
+  strcpy(dirp->dd_buf.d_name, (const char *)dirp->dd_buf.file.cFileName);
+#else
   strcpy(dirp->dd_buf.d_name, dirp->dd_buf.file.cFileName);
+#endif
+  
   dirp->dd_buf.d_reclen = dirp->dd_buf.file.nFileSizeLow;
+
+#ifdef __VS2026__
+  dirp->dd_buf.d_namlen = strlen((const char *)dirp->dd_buf.file.cFileName);
+#else
   dirp->dd_buf.d_namlen = strlen(dirp->dd_buf.file.cFileName);
+#endif
+  
   dirp->dd_loc = 0;
   dirp->dd_fd = -1;
   dirp->dd_size = dirp->dd_buf.file.nFileSizeLow;
@@ -1621,15 +1702,30 @@ int futils_GetDiskSpace(char *partition, __ULLWORD__ &free_space,
   // current version of Windows the application is running under. We don't 
   // need to call LoadLibrary on KERNEL32.DLL because it is already loaded 
   // into every Win32 process's address space.
-  pGetDiskFreeSpaceEx = \
- (P_GDFSE)GetProcAddress(GetModuleHandle("kernel32.dll"),
-			 "GetDiskFreeSpaceExA");
+
+#ifdef __VS2026__
+  pGetDiskFreeSpaceEx = (P_GDFSE)GetProcAddress(GetModuleHandle(TEXT("kernel32.dll")), "GetDiskFreeSpaceExA");
+#else
+  pGetDiskFreeSpaceEx = (P_GDFSE)GetProcAddress(GetModuleHandle("kernel32.dll"), "GetDiskFreeSpaceExA");
+#endif
+  
   if(pGetDiskFreeSpaceEx) {
     PULARGE_INTEGER avail_bytes = new ULARGE_INTEGER;
     PULARGE_INTEGER bytes_total = new ULARGE_INTEGER;
     PULARGE_INTEGER free_bytes  = new ULARGE_INTEGER;
+
+#ifdef __VS2026__
+    const char* narrowString = partition;
+    wchar_t wideBuffer[1024];
+    MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
+    
+    fResult = pGetDiskFreeSpaceEx(wideBuffer, avail_bytes, bytes_total, 
+				  free_bytes);
+#else
     fResult = pGetDiskFreeSpaceEx(partition, avail_bytes, bytes_total, 
 				  free_bytes);
+#endif
+    
     if(fResult) {
       total_bytes = ((((__ULLWORD__)bytes_total->HighPart) << 32) | 
 		     ((__ULLWORD__)bytes_total->LowPart));
@@ -1650,6 +1746,22 @@ int futils_GetDiskSpace(char *partition, __ULLWORD__ &free_space,
   else { // Use the Windows 95A code
     unsigned long bytesPerSector, sectorsPerCluster;
     unsigned long freeClusters, totalClusters;
+#ifdef __VS2026__
+    const char* narrowString = partition;
+    wchar_t wideBuffer[1024];
+    MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
+    if(GetDiskFreeSpace(wideBuffer, &sectorsPerCluster, &bytesPerSector,
+			&freeClusters, &totalClusters)) {
+      free_space = \
+	sectorsPerCluster * bytesPerSector * (__LLWORD__)freeClusters;
+      total_bytes = \
+	sectorsPerCluster * bytesPerSector * (__LLWORD__)totalClusters;
+      bytes_used = total_bytes - free_space;
+    }
+    else {
+      return -1;
+    }
+#else
     if(GetDiskFreeSpace(partition, &sectorsPerCluster, &bytesPerSector,
 			&freeClusters, &totalClusters)) {
       free_space = \
@@ -1660,8 +1772,8 @@ int futils_GetDiskSpace(char *partition, __ULLWORD__ &free_space,
     }
     else {
       return -1;
-
     }
+#endif
   }
 
 #elif defined (__UNIX__) && defined (__LINUX__)
