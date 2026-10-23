@@ -30,3 +30,6 @@
 
 # Debug file
 core.*
+
+# DRCM server binary
+drcm_server/drcm_server

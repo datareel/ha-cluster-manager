@@ -40,7 +40,6 @@ Multi-threaded framework Datareel cluster manager.
 
 #include "gxstring.h"
 #include "gxlist.h"
-#include "membuf.h"
 
 #if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>

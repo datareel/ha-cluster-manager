@@ -38,7 +38,6 @@ Program config functions for Datareel cluster manager.
 
 #include "drcm_server.h"
 #include "m_config.h"
-#include "gxbstree.h"
 
 CMconfig ServerConfigSruct;
 CMconfig *servercfg = &ServerConfigSruct;
