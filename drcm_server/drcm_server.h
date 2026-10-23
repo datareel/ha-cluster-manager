@@ -58,11 +58,9 @@ using namespace std; // Use unqualified names for Standard C++ library
 #include "dfileb.h"
 #include "systime.h"
 #include "logfile.h" 
-#include "gxconfig.h"
 #include "gxthread.h"
-#include "gxtelnet.h"
+#include "gxsocket.h"
 #include "thrpool.h"
-#include "gxscomm.h"
 
 // Project include files
 #include "m_log.h"

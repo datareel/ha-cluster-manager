@@ -42,9 +42,6 @@ Multi-threaded framework Datareel cluster manager.
 #include "gxthread.h"
 #include "gxsocket.h"
 #include "dfileb.h"
-#include "devcache.h"
-#include "memblock.h"
-#include "membuf.h"
 
 #include "drcm_server.h"
 #include "m_socket.h"
