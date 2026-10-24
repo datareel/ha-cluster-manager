@@ -5,7 +5,7 @@ BUILDDIR_tmp="/tmp/drcm_build_${USERNAME}"
 
 if [ -z $1 ]; then
     echo "You must supply a OS version"
-    echo "Usage: ${0} rhel6|rhel7|rhel8|rhel9|rhel10"
+    echo "Usage: ${0} rhel8|rhel9|rhel10"
     exit 1
 fi
 
@@ -104,14 +104,8 @@ mkdir -p ${Build}/usr/sbin
 chmod 755 ${Build}/usr/sbin
 cp -fv drcm_server ${Build}/usr/sbin/drcm_server
 chmod 755 ${Build}/usr/sbin/drcm_server
-# RHEL 6 uses the SysV init script. RHEL 7 and later use the native
-# systemd unit installed below, so the init script is not shipped there.
-if [ "${OS}" == "rhel6" ]; then
-    mkdir -p ${Build}/etc/rc.d/init.d
-    chmod 755 ${Build}/etc/rc.d/init.d
-    cp -fv ../system5_init/drcm_server ${Build}/etc/rc.d/init.d/drcm_server
-    chmod 755 ${Build}/etc/rc.d/init.d/drcm_server
-fi
+# All supported targets (RHEL 8, 9, 10) use the native systemd unit
+# installed below; no SysV init script is shipped.
 mkdir -p ${Build}/etc/sysconfig
 chmod 755 ${Build}/etc/sysconfig
 cp -fv ../etc/system_templates/drcm_server_sysconfig ${Build}/etc/sysconfig/drcm_server
@@ -130,7 +124,7 @@ gzip -c ../man/drcm_server.1 > ${Build}/usr/share/man/man1/drcm_server.1.gz
 gzip -c ../man/drcm_server.8 > ${Build}/usr/share/man/man8/drcm_server.8.gz
 chmod 644  ${Build}/usr/share/man/man1/drcm_server.1.gz
 chmod 644 ${Build}/usr/share/man/man8/drcm_server.8.gz
-if [ "${OS}" == "rhel7" ] || [ "${OS}" == "rhel8" ] || [ "${OS}" == "rhel9" ] || [ "${OS}" == "rhel10" ]; then
+if [ "${OS}" == "rhel8" ] || [ "${OS}" == "rhel9" ] || [ "${OS}" == "rhel10" ]; then
     mkdir -p ${Build}/usr/lib/systemd/system
     chmod 755 ${Build}/usr/lib/systemd/system
     cp -fv ../systemd_init/drcm_server.service  ${Build}/usr/lib/systemd/system/drcm_server.service

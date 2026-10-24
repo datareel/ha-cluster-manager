@@ -119,6 +119,13 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   (the test was inverted).
 
 ### Removed
+- Dropped the RHEL 6 and RHEL 7 RPM builds (`drcm_rhel6.spec`,
+  `drcm_rhel7.spec`, `make_rhel6_rpm.sh`, `make_rhel7_rpm.sh`). Both
+  releases are past end of maintenance, cannot run in the cloud, and
+  RHEL 7's OpenSSL 1.0.2 has no TLS 1.3. Supported targets are now
+  RHEL 8, 9 and 10. The orphaned SysV init script (`system5_init/`,
+  used only by the RHEL 6 package) was removed with them; all
+  supported targets use the native systemd unit.
 - Trimmed the bundled DataReel library to the components the DRCM
   server links against. `include/` went from 99 headers to 29 and
   `src/` from 79 source files to 16. The database, RDBMS, B-tree,
@@ -142,7 +149,7 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   upstream repository.
 - `CHANGELOG.md` (this file).
 - `rpm_builder/drcm_rhel10.spec` and `rpm_builder/make_rhel10_rpm.sh`
-  for building RHEL 10 RPMs. Like RHEL 7–9, the RHEL 10 package
+  for building RHEL 10 RPMs. Like RHEL 8 and 9, the RHEL 10 package
   installs the native systemd unit to `/usr/lib/systemd/system` and
   ships no SysV init script. `make_rpm_package.sh` accepts `rhel10`.
 
