@@ -210,24 +210,24 @@ int run_server()
   // End of requried server startup checks
   if(error_level != 0) return error_level;
   
-  // Check to see if an instance of the CM server is running on this node
-  int udp_server_is_running = 0;
-  gxSocket check_client(SOCK_DGRAM, servercfg->udpport, this_node->keep_alive_ip.c_str());
-  if(check_client) {
-    CM_MessageHeader cmhdr_check;
-    cmhdr_check.set_word(cmhdr_check.checkword, NET_CHECKWORD);
-    memmove(cmhdr_check.sha1sum, servercfg->sha1sum, sizeof(cmhdr_check.sha1sum));
-    cmhdr_check.set_word(cmhdr_check.cluster_command, CM_CMD_KEEPALIVE);
-    int check_optVal = 1;
-    check_client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&check_optVal, sizeof(check_optVal));
-    if(check_client.RawWriteTo(&cmhdr_check, sizeof(cmhdr_check)) == sizeof(cmhdr_check)) {
-      cmhdr_check.clear();
-      if(check_client.RemoteRecvFrom(&cmhdr_check, sizeof(cmhdr_check), 5, 0) == sizeof(cmhdr_check)) {
-	udp_server_is_running = 1;
+  // Check to see if an instance of the CM server is already running on
+  // this node. An authenticated v2 KEEPALIVE to ourselves is answered with
+  // an authenticated ACK only by a live server, over whichever transport
+  // the cluster is configured for.
+  int cm_server_is_running = 0;
+  {
+    unsigned char reply[CM_RX_BUF_SIZE];
+    int reply_len = 0;
+    if(cm_node_exchange(this_node, CM_CMD_KEEPALIVE, 0, 0, reply,
+                        sizeof(reply), &reply_len, 2, 0) == 0 && reply_len > 0) {
+      CMFrame rf;
+      if(cm_parse_frame(reply, reply_len, rf) == CM_FRAME_OK &&
+         rf.command == CM_CMD_ACK) {
+        cm_server_is_running = 1;
       }
     }
   }
-  if(udp_server_is_running) {
+  if(cm_server_is_running) {
     NT_print("ERROR - DRCM server already started and running on this node");
     return  1; // We cannot continue
   }
@@ -241,6 +241,7 @@ int run_server()
   NT_log_rotate();
 
   CM_UDP_ServerThread udp_server_t;
+  CM_TCP_ServerThread tcp_server_t;
   CM_KeepAliveThread keep_alive_t;
   LogThread log;
   CM_CrontabsThread ctab_t;
@@ -312,6 +313,33 @@ int run_server()
     NT_print("ERROR - Fatal error starting UDP server thread");
     NT_print(servercfg->udp_server_thread->ThreadExceptionMessage());
     return 1;
+  }
+
+  // The TCP + TLS cluster server is started only when the cluster is
+  // configured for the TCP transport (internet / cloud clusters).
+  if(servercfg->cluster_transport == CM_TRANSPORT_TCP) {
+    int tcp_retries = 6;
+    int tcp_rv = 1;
+    while(--tcp_retries) {
+      NT_print("Initializing CM TCP + TLS server...");
+      tcp_rv = tcp_server_t.InitServer();
+      if(tcp_rv == 0) break;
+      NT_print("ERROR - Cannot initialize cluster TCP server, retrying");
+      NT_print(tcp_server_t.SocketExceptionMessage());
+      sSleep(3);
+    }
+    if(tcp_rv != 0) {
+      NT_print("ERROR - Cannot initialize cluster TCP + TLS server, exiting program");
+      NT_print(tcp_server_t.SocketExceptionMessage());
+      return 1;
+    }
+    NT_print("Starting CM TCP + TLS server thread");
+    servercfg->tcp_server_thread = tcp_server_t.CreateThread();
+    if(servercfg->tcp_server_thread->GetThreadError() != gxTHREAD_NO_ERROR) {
+      NT_print("ERROR - Fatal error starting TCP server thread");
+      NT_print(servercfg->tcp_server_thread->ThreadExceptionMessage());
+      return 1;
+    }
   }
 
   NT_print("Starting CM UDP keep alive thread");

@@ -172,8 +172,12 @@ void CMReplayState::reset()
 {
   highest_seq = 0;
   have_seq = 0;
+  strict_sequence = 0;
   use_timestamp = 0;
   window_secs = 30;
+  nonce_count = 0;
+  nonce_pos = 0;
+  memset(nonces, 0, sizeof(nonces));
 }
 
 cm_frame_status cm_replay_check(CMReplayState *st, const CMFrame *f,
@@ -181,18 +185,27 @@ cm_frame_status cm_replay_check(CMReplayState *st, const CMFrame *f,
 {
   if(!st || !f) return CM_FRAME_REPLAY;
 
-  // Sequence must strictly increase. This is the default protection and
-  // needs no synced clocks.
-  if(st->have_seq && f->sequence <= st->highest_seq) return CM_FRAME_REPLAY;
+  // 1. Reject an exact replay: a nonce we have seen recently. Clock-free.
+  for(int i = 0; i < st->nonce_count; i++) {
+    if(memcmp(st->nonces[i], f->nonce, CM_NONCE_LEN) == 0) return CM_FRAME_REPLAY;
+  }
 
-  // Optional timestamp window for sites with synced clocks.
+  // 2. Optional strict sequence (TCP connection epoch).
+  if(st->strict_sequence && st->have_seq && f->sequence <= st->highest_seq)
+    return CM_FRAME_REPLAY;
+
+  // 3. Optional timestamp window for sites with synced clocks.
   if(st->use_timestamp && (f->flags & CM_FLAG_HAS_TIMESTAMP)) {
     uint64_t lo = (now_secs > st->window_secs) ? now_secs - st->window_secs : 0;
     uint64_t hi = now_secs + st->window_secs;
     if(f->timestamp < lo || f->timestamp > hi) return CM_FRAME_REPLAY;
   }
 
-  st->highest_seq = f->sequence;
+  // Accept: record the nonce in the ring and advance the sequence.
+  memcpy(st->nonces[st->nonce_pos], f->nonce, CM_NONCE_LEN);
+  st->nonce_pos = (st->nonce_pos + 1) % CM_NONCE_CACHE;
+  if(st->nonce_count < CM_NONCE_CACHE) st->nonce_count++;
+  if(!st->have_seq || f->sequence > st->highest_seq) st->highest_seq = f->sequence;
   st->have_seq = 1;
   return CM_FRAME_OK;
 }

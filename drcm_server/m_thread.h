@@ -73,6 +73,26 @@ private: // gxThread Interface
   void ThreadCleanupHandler(gxThread_t *thread);
 };
 
+// TCP + TLS cluster server (Phase 4). Only started when
+// servercfg->cluster_transport is CM_TRANSPORT_TCP. It accepts
+// mutually-authenticated TLS connections from peer nodes and answers the
+// same authenticated v2 frames the UDP server does. Each accepted
+// connection carries one request/response.
+class CM_TCP_ServerThread : public gxSocket, public gxThread
+{
+public:
+  CM_TCP_ServerThread() { }
+  ~CM_TCP_ServerThread() { }
+
+public: // Server functions
+  int InitServer(); // bind + listen on the TCP port; returns non-zero on error
+
+private: // gxThread Interface
+  void *ThreadEntryRoutine(gxThread_t *thread);
+  void ThreadExitRoutine(gxThread_t *thread);
+  void ThreadCleanupHandler(gxThread_t *thread);
+};
+
 class CM_CrontabsThread : public gxSocket, public gxThread
 {
 public:

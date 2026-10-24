@@ -78,26 +78,41 @@ int cm_random_bytes(uint8_t *buf, size_t len);
 // ----------------------------------------------------------- //
 // Anti-replay state for one peer.
 //
-// Default policy (dougg's choice): accept a frame only if its sequence
-// number is strictly greater than the highest seen from this peer. A
-// captured frame therefore cannot be resent. The optional timestamp
-// window adds a second check for sites that run synced clocks.
+// The checks, in order:
+//  1. Nonce cache: a frame whose random nonce was seen recently is
+//     rejected. This catches an exact replayed datagram without any
+//     clock sync, so it is the baseline protection for UDP, where the
+//     commands are read-only/liveness and a peer may restart.
+//  2. Strict sequence (strict_sequence=1, used on a TCP connection):
+//     the sequence number must strictly increase. A TCP connection is a
+//     fresh epoch, so a reset on reconnect is fine. Left off for UDP,
+//     where a peer restart legitimately resets the counter.
+//  3. Timestamp window (use_timestamp=1, dougg's optional stricter
+//     mode): the frame timestamp must be within window_secs of now.
+//     Needs loosely synced clocks (chrony/ntp).
 // ----------------------------------------------------------- //
+const int CM_NONCE_CACHE = 256; // recent nonces remembered per peer
+
 struct CMReplayState {
   CMReplayState();
 
   uint64_t highest_seq;      // highest accepted sequence from this peer
   int      have_seq;         // 0 until the first frame is accepted
+  int      strict_sequence;  // 1 to enforce strictly increasing sequence
   int      use_timestamp;    // 1 to also enforce the timestamp window
   uint32_t window_secs;      // allowed clock skew when use_timestamp
+
+  uint8_t  nonces[CM_NONCE_CACHE][CM_NONCE_LEN];
+  int      nonce_count;      // number of valid entries (grows to CM_NONCE_CACHE)
+  int      nonce_pos;        // next write position (ring)
 
   void reset();
 };
 
 // Check a parsed frame against the peer's replay state. now_secs is the
 // receiver's current unix time (used only when use_timestamp). On
-// CM_FRAME_OK the state is advanced to this frame's sequence. Returns
-// CM_FRAME_OK or CM_FRAME_REPLAY.
+// CM_FRAME_OK the state is advanced (nonce recorded, sequence updated).
+// Returns CM_FRAME_OK or CM_FRAME_REPLAY.
 cm_frame_status cm_replay_check(CMReplayState *st, const CMFrame *f,
                                 uint64_t now_secs);
 

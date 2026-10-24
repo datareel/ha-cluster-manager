@@ -61,6 +61,38 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   UBSan. The cleartext replayable auth remains a known limitation of
   UDP mode and is addressed by the authenticated, encrypted TCP mode
   design.
+- Every cluster message (UDP and TCP) is now carried in an
+  authenticated v2 frame: an HMAC-SHA256 computed over the whole frame
+  with the 2048-byte cluster authkey, plus a timestamp, a per-sender
+  monotonic sequence number and a random 16-byte nonce. The HMAC is
+  verified in constant time before any field is trusted, so a forged or
+  tampered command is rejected outright. This replaces the old static
+  SHA-1 hash that was sent in the clear and could be copied from one
+  packet into another. The hashing algorithm was reviewed as part of
+  this: the keyed HMAC-SHA256 that authenticates messages is unrelated
+  to the SHA-1 that only fingerprints the authkey file at rest.
+- Anti-replay is on by default with no clock-sync requirement: a replayed
+  datagram is caught by the nonce cache, and a TCP connection also
+  enforces strictly increasing sequence numbers. Sites with synchronized
+  clocks can additionally set `replay_window_secs` to reject frames
+  outside a timestamp window.
+- New TCP transport (`cluster_transport = tcp`) runs the authenticated
+  frames inside a mutually-authenticated TLS tunnel for failover over the
+  internet (data center to cloud, cloud to cloud). Both ends present a
+  certificate signed by the cluster CA and verify the peer against it;
+  the handshake fails closed on a verify failure, TLS 1.2 is the floor,
+  and an optional per-peer certificate fingerprint can be pinned.
+  Certificates may be self-signed by a cluster CA (the default) or issued
+  externally, e.g. Let's Encrypt via acme.sh. Verified against a live
+  server: a plain-TCP client, a client with no certificate, and a client
+  with a certificate from a different CA are all rejected at the
+  handshake, and even a client with a valid cluster certificate cannot
+  forge a command because the HMAC frame still fails (defense in depth).
+- Witness quorum (`quorum_required = 1` with a `witness_endpoint`) stops a
+  two-node split brain from causing a false failover: a node takes over
+  the peer's resources only if it can still reach the witness, so a node
+  isolated by a network cut (or an attacker blocking the peer link)
+  stands down instead of double-owning resources.
 
 ### Fixed
 - Config settings are now matched by their full name. Before, a line
@@ -152,6 +184,24 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   for building RHEL 10 RPMs. Like RHEL 8 and 9, the RHEL 10 package
   installs the native systemd unit to `/usr/lib/systemd/system` and
   ships no SysV init script. `make_rpm_package.sh` accepts `rhel10`.
+- `drcm_server/m_crypto.{h,cpp}`: self-contained authenticated v2 frame
+  and anti-replay layer (HMAC-SHA256, nonce/sequence/timestamp), with its
+  own unit tests.
+- `drcm_server/m_tls.{h,cpp}`: a small OpenSSL wrapper for the mutually
+  authenticated TLS connections used by the TCP transport, plus a new
+  `CM_TCP_ServerThread` that serves the authenticated frames over TLS.
+- `etc/resources/aws_ipv4addr.sh`: AWS floating-IP resource script. It is
+  a drop-in replacement for `ipv4addr.sh` that reassociates an Elastic IP
+  (or re-points a VPC route-table VIP) to the active instance, for
+  floating IPs in AWS where a local interface alias does not move.
+- `tools/migrate_cfg.py`: migrates a pre-Phase-4 `cm.cfg` to the new
+  format. It is additive and idempotent, keeps the cluster on UDP by
+  default, and can switch it to TCP + TLS and scaffold the TLS and quorum
+  settings.
+- `tools/drcm_gui.py`: a small tkinter GUI to set up a new cluster
+  (nodes, services, transport, TLS, quorum) and to migrate an existing
+  config. The config generation is a pure function with a `--selftest`
+  mode so it can run without a display.
 
 ### Changed
 - `build/makefile`, `env/glibobjs.mak` and `env/glibdeps.mak` now list
@@ -172,6 +222,18 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   Fortran/OpenMP variables DRCM does not use, or affinity settings. It
   now exports the hardening `CFLAGS`, `CXXFLAGS` and `LDFLAGS`
   described above.
+- The `ping`, `rstats`, `cm_stat` and keep-alive clients now go through a
+  single transport-aware exchange that speaks UDP or TCP + TLS according
+  to `cluster_transport`, so the same commands work in both modes. The
+  duplicate-instance check at startup uses the authenticated v2 protocol
+  over the configured transport.
+- New `[CM_SERVER]` settings: `cluster_transport`, `tls_ca_file`,
+  `tls_cert_file`, `tls_key_file`, `tls_min_version`, `replay_window_secs`,
+  `quorum_required`, `witness_endpoint`; and new `[CM_NODE]` settings:
+  `peer_endpoints`, `tls_peer_fingerprint`, `floating_ip_provider`. In TCP
+  mode `--check-config` also checks the TLS files exist and that a witness
+  is set when quorum is required. Existing configs keep working unchanged
+  (the defaults are UDP transport and no quorum).
 - `service.sh` checks service state with `systemctl is-active` instead
   of grepping localized `systemctl status` output, and detects systemd
   by looking for the `systemctl` command.
