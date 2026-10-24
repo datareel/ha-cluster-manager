@@ -62,6 +62,14 @@ static uint64_t get_u64(const uint8_t *p)
 // Compute HMAC-SHA256 over the frame with the hmac field treated as
 // zero, into out32. frame must be at least CM_FRAME_HDR_LEN bytes and
 // hold header + payload contiguously (total_len bytes).
+//
+// The HMAC_CTX API is used because it is available and identical on
+// OpenSSL 1.1.1 (RHEL 8) and 3.x (RHEL 9/10). It is marked deprecated
+// on 3.0 only; the EVP_MAC replacement does not exist on 1.1.1. The
+// deprecation warning is silenced locally rather than forking per
+// version.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 static int compute_hmac(const uint8_t *frame, size_t total_len,
                         const uint8_t *key, size_t key_len,
                         uint8_t out32[CM_HMAC_LEN])
@@ -85,6 +93,7 @@ static int compute_hmac(const uint8_t *frame, size_t total_len,
   HMAC_CTX_free(ctx);
   return rc;
 }
+#pragma GCC diagnostic pop
 
 cm_frame_status cm_frame_build(uint8_t *out_buf, size_t out_cap, size_t *out_len,
                                uint8_t command, uint8_t flags,
