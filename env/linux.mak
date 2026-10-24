@@ -29,11 +29,14 @@ GXCODE_LIB_PATH = -L$(GCODE_LIB_DIR)$(PATHSEP)lib
 LIB_GXCODE = $(GCODE_LIB_DIR)$(PATHSEP)lib/libdatareel.a
 
 
+# LDFLAGS (set by env/gnu_env.sh) carries the executable hardening flags
+# (RELRO, immediate binding, PIE). It is applied here, on the executable
+# link only, so it does not reach the shared library link in build/makefile.
 $(PROJECT):	$(OBJECTS)
 	$(CXX) $(COMPILE_FLAGS) $(OBJECTS) \
 	$(GXCODE_LIB_PATH) $(LIB_GXCODE) $(LINK_LIBRARIES) \
 	$(OUTPUT) \
-	$(PROJECT) $(LINKER_FLAGS)
+	$(PROJECT) $(LINKER_FLAGS) $(LDFLAGS)
 # ===============================================================
 
 # Remove object files and the executable after running make 

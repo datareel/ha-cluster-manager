@@ -1,7 +1,7 @@
 #!/bin/bash
 # DR cluster resource script for adding or removing crontabs
 
-. ~/.bashrc
+if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
 
 # All crontab resouce scripts must use the following args:
 #

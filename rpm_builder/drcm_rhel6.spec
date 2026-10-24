@@ -106,6 +106,9 @@ fi
 /sbin/service drcm_server restart > /dev/null 2>&1 || :
 
 %changelog
+* Fri Oct 24 2026 Datareel <datareel.com>
+- Hardened build flags; modernized resource scripts (RHEL 6 keeps SysV init)
+
 * Mon Feb 05 2024 Datareel <datareel.com>
 - Added NMCLI resource scripts
 

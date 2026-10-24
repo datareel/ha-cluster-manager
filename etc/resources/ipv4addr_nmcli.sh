@@ -3,7 +3,7 @@
 # This resource script is designed to be used on cluster nodes with
 # different device names.
 
-. ~/.bashrc
+if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
 
 # All IPv4 resouce scripts must use the following args:
 #

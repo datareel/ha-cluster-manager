@@ -40,7 +40,7 @@
 #
 # ----------------------------------------------------------- 
 
-. ~/.bashrc
+if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
 
 error_level=0
 
@@ -66,7 +66,15 @@ fi
 
 function IsMounted() {
     is_mounted=0;
-    grep "${source} ${target}" /etc/mtab &> /dev/null
+    # findmnt checks the kernel mount table by exact mount point, so a
+    # path that is a substring of another mount cannot match by accident.
+    if command -v findmnt &> /dev/null; then
+	findmnt --noheadings --source "${source}" --mountpoint "${target}" &> /dev/null
+    else
+	# Fallback: exact match of the mount point in /proc/self/mounts
+	awk -v t="${target}" '$2 == t { found=1 } END { exit !found }' \
+	    /proc/self/mounts &> /dev/null
+    fi
     if [ $? -eq 0 ]; then is_mounted=1; fi
 }
 

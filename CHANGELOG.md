@@ -49,6 +49,18 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   write to predictable `/tmp/ls.PID` files.
 - `send_alert.sh` time stamp files are mode 644 instead of 666, so
   other users cannot suppress alerts.
+- The server is now built with exploit mitigations on by default:
+  `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=2`, a position
+  independent executable (PIE) and full read-only relocations
+  (`-z relro -z now`). These are the modern RHEL distro defaults.
+- The internal UDP keep alive protocol was tested against an insider
+  on the LAN, not only reviewed. A forged auth hash, a wrong
+  checkword and unknown commands are all rejected, a truncated or
+  oversized datagram is handled without a crash, and the server
+  survived a 2000 packet fuzz run clean under AddressSanitizer and
+  UBSan. The cleartext replayable auth remains a known limitation of
+  UDP mode and is addressed by the authenticated, encrypted TCP mode
+  design.
 
 ### Fixed
 - Config settings are now matched by their full name. Before, a line
@@ -136,3 +148,27 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   regenerated with `g++ -MM`.
 - The bundled DataReel files match DataReel 5.10.
 - `.gitignore` now ignores the `drcm_server/drcm_server` binary.
+- The systemd unit is now a native service (`Type=simple`) that runs
+  `drcm_server` directly, instead of a `Type=forking` wrapper around
+  the SysV init script. It stops the service with `SIGTERM` and
+  `KillMode=process` so DRCM runs its own resource stop scripts, gives
+  shutdown up to 180 seconds (`TimeoutStopSec`), restarts on failure,
+  and logs to the journal instead of the deprecated `syslog` target.
+  The RPM for RHEL 7 and later installs this unit to
+  `/usr/lib/systemd/system` and no longer ships the SysV init script;
+  RHEL 6 still uses the SysV init script.
+- `env/gnu_env.sh` no longer sets the verbose compile flag (`-v`), the
+  Fortran/OpenMP variables DRCM does not use, or affinity settings. It
+  now exports the hardening `CFLAGS`, `CXXFLAGS` and `LDFLAGS`
+  described above.
+- `service.sh` checks service state with `systemctl is-active` instead
+  of grepping localized `systemctl status` output, and detects systemd
+  by looking for the `systemctl` command.
+- `nfs.sh` and `cifs.sh` check whether a share is mounted with
+  `findmnt` (exact mount point match) instead of a substring `grep` of
+  `/etc/mtab`, which could match the wrong mount.
+- Resource and utility scripts source `~/.bashrc` only when it exists,
+  so a missing file no longer aborts the script under `set -e`.
+- The legacy `ipv4addr_copy_config.sh` and `ipv4addr_multi.sh` floating
+  IP scripts now carry a notice that `network-scripts` is deprecated on
+  RHEL 8 and later; use the NetworkManager (`nmcli`) scripts there.

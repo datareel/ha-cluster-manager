@@ -1,7 +1,7 @@
 #!/bin/bash
 # DR cluster resource script for watching cluster services
 
-. ~/.bashrc
+if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
 
 # All service resouce scripts must use the following args:
 #
@@ -27,12 +27,14 @@ fi
 
 is_active=0
 is_systemd=1
-if [ ! -d /etc/systemd ]; then is_systemd=0; fi
+if ! command -v systemctl &> /dev/null; then is_systemd=0; fi
 
 function IsActive() {
     is_active=0;
     if [ $is_systemd -eq 1 ]; then
-	systemctl status ${servicename} | grep 'Active:' | grep ' active' &> /dev/null
+	# "is-active" returns the state as its exit code, so it does not
+	# depend on parsing localized "systemctl status" output.
+	systemctl is-active --quiet ${servicename}
     else
 	service ${servicename} status | grep -i "is running" &> /dev/null
     fi
@@ -41,14 +43,20 @@ function IsActive() {
 
 function IsDead() {
     if [ $is_systemd -eq 1 ]; then
-	systemctl status ${servicename} | grep 'Active:' | grep -E " inactive|failed" &> /dev/null
+	# is-active is true only when the unit is running, so its
+	# failure means the service is not active.
+	if systemctl is-active --quiet ${servicename}; then
+	    is_active=1
+	else
+	    is_active=0
+	fi
     else
 	service ${servicename} status | grep -i "is stopped" &> /dev/null
-    fi
-    if [ $? -eq 0 ]; then 
-	is_active=0 
-    else
-	is_active=1 
+	if [ $? -eq 0 ]; then
+	    is_active=0
+	else
+	    is_active=1
+	fi
     fi
 }
 

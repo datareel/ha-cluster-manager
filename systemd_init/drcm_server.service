@@ -1,16 +1,26 @@
 [Unit]
-Description=DR cluster manager service
-After=network.target
+Description=DataReel cluster manager (DRCM)
+Documentation=man:drcm_server(8)
+Wants=network-online.target
+After=network-online.target remote-fs.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
-Type=forking
-EnvironmentFile=/etc/sysconfig/drcm_server
-ExecStart=/etc/rc.d/init.d/drcm_server start
-ExecReload=/etc/rc.d/init.d/drcm_server reload
-ExecStop=/etc/rc.d/init.d/drcm_server stop
-
-StandardOutput=syslog
-StandardError=syslog
+Type=simple
+Environment=CFGFILE=/etc/drcm/cm.cfg
+EnvironmentFile=-/etc/sysconfig/drcm_server
+ExecStart=/usr/sbin/drcm_server --config-file=${CFGFILE} $ARGS
+# DRCM stops its own resources on SIGTERM. Only signal the server
+# process, so resource stop scripts can run and resources kept with
+# keep_services, keep_applications or keep_filesystems stay up.
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=180
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
