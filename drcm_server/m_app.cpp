@@ -1078,37 +1078,21 @@ int ping_node(CMnode *node)
 {
   gxString suffix;
   suffix << clear << node->nodename << "@" << node->keep_alive_ip;
-  gxSocket client(SOCK_DGRAM, servercfg->udpport, node->keep_alive_ip.c_str());
-  if(!client) {
-    cout << "ping fatal error could not start CM client socket" << "\n" << flush;
-    return 1;
-  }
 
-  CM_MessageHeader cmhdr;
-  
-  cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
-  memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
-  cmhdr.set_word(cmhdr.cluster_command, CM_CMD_PING);
-
-  int optVal = 1;
-  client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&optVal, sizeof(optVal));
-
-  int bytes_moved = client.SendTo(&cmhdr, sizeof(cmhdr));
-  if(bytes_moved != sizeof(cmhdr)) {
-    cout << "ping " << suffix.c_str() << " failed with send error" << "\n" << flush;      
+  unsigned char rxbuf[CM_RX_BUF_SIZE];
+  int bytes_read = 0;
+  // Transport-aware exchange: UDP datagram or TCP+TLS per config.
+  if(cm_node_exchange(node, CM_CMD_PING, 0, 0, rxbuf, sizeof(rxbuf),
+                      &bytes_read, 5, 0) != 0 || bytes_read <= 0) {
+    cout << "ping " << suffix.c_str() << " failed with recv error" << "\n" << flush;
     return 1;
   }
-  cmhdr.clear();
-  int bytes_read = client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), 5, 0);
-  if(bytes_read != sizeof(cmhdr)) {
-    cout << "ping " << suffix.c_str() << " failed with recv error" << "\n" << flush;      
+  CMFrame reply;
+  if(cm_parse_frame(rxbuf, bytes_read, reply) != CM_FRAME_OK || reply.command != CM_CMD_ACK) {
+    cout << "ping " << suffix.c_str() << " failed with bad reply" << "\n" << flush;
     return 1;
   }
-  if(!cm_reply_is_valid(cmhdr)) {
-    cout << "ping " << suffix.c_str() << " failed with bad reply" << "\n" << flush;      
-    return 1;
-  }
-  cout << "ping " << suffix.c_str() << " successful" << "\n" << flush;      
+  cout << "ping " << suffix.c_str() << " successful" << "\n" << flush;
   return 0;
 }
 
@@ -1127,53 +1111,31 @@ int get_rstats(CMnode *node)
 {
   gxString suffix;
   suffix << clear << node->nodename << "@" << node->keep_alive_ip;
-  gxSocket client(SOCK_DGRAM, servercfg->udpport, node->keep_alive_ip.c_str());
-  if(!client) {
-    cout << "rstats fatal error could not start CM client socket" << "\n" << flush;
+
+  // The stats reply is one authenticated frame carrying the stats as its
+  // payload. Transport-aware exchange: UDP datagram or TCP+TLS per config.
+  unsigned char *rxbuf = new unsigned char[CM_RX_BUF_SIZE];
+  int bytes_read = 0;
+  if(cm_node_exchange(node, CM_CMD_GETSTATS, 0, 0, rxbuf, CM_RX_BUF_SIZE,
+                      &bytes_read, 15, 0) != 0 || bytes_read <= 0) {
+    cout << "rstats " << suffix.c_str() << " failed with recv error" << "\n" << flush;
+    delete[] rxbuf;
+    return 1;
+  }
+  CMFrame reply;
+  if(cm_parse_frame(rxbuf, bytes_read, reply) != CM_FRAME_OK || reply.command != CM_CMD_ACK) {
+    cout << "rstats ack " << suffix.c_str() << " failed with bad or unauthenticated reply" << "\n" << flush;
+    delete[] rxbuf;
     return 1;
   }
 
-  CM_MessageHeader cmhdr;
-  
-  cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
-  memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
-  cmhdr.set_word(cmhdr.cluster_command, CM_CMD_GETSTATS);
-
-  int optVal = 1;
-  client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&optVal, sizeof(optVal));
-
-  int bytes_moved = client.SendTo(&cmhdr, sizeof(cmhdr));
-  if(bytes_moved != sizeof(cmhdr)) {
-    cout << "rstats " << suffix.c_str() << " failed with send error" << "\n" << flush;      
-    return 1;
+  cout << "rstats " << suffix.c_str() << " successful" << "\n" << flush;
+  if(reply.payload_len > 0) {
+    cout.write((const char *)reply.payload, (int)reply.payload_len);
+    cout << flush;
   }
-
-  cmhdr.clear();
-  int bytes_read = client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), 5, 0);
-  if(bytes_read != sizeof(cmhdr)) {
-    cout << "rstats ack " << suffix.c_str() << " failed with recv error" << "\n" << flush;      
-    return 1;
-  }
-
-  int sizebuf = cmhdr.get_word(cmhdr.datagram_size);
-  if(!cm_reply_is_valid(cmhdr) || sizebuf <= 0 || sizebuf > CM_MAX_STATS_SIZE) {
-    cout << "rstats ack " << suffix.c_str() << " failed with bad datagram size" << "\n" << flush;      
-    return 1;
-  }
-  char *datagram = new char[sizebuf+1];
-  memset(datagram, 0, (sizebuf+1));
-
-  bytes_read = client.RemoteRecvFrom(datagram, sizebuf, 15, 0);
-  if(bytes_read != sizebuf) {
-    cout << "rstats " << suffix.c_str() << " failed with recv error" << "\n" << flush;      
-    delete[] datagram;
-    return 1;
-  }
-
-  cout << "rstats " << suffix.c_str() << " successful" << "\n" << flush;      
-  cout << datagram << flush;
-  cout << "rstats " << suffix.c_str() << " end" << "\n" << flush;      
-  delete[] datagram;
+  cout << "rstats " << suffix.c_str() << " end" << "\n" << flush;
+  delete[] rxbuf;
 
   return 0;
 }
@@ -1219,22 +1181,19 @@ int cm_stat()
     CMstatsnode statnode;
     statnode.node.Copy(*ptr->data);
     statnode.is_alive = 0;
-    gxSocket client(SOCK_DGRAM, servercfg->udpport, statnode.node.keep_alive_ip.c_str());
-    if(client) {
-      CM_MessageHeader cmhdr;
-      cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
-      memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
-      cmhdr.set_word(cmhdr.cluster_command, CM_CMD_GETSTATS);
-      int optVal = 1;
-      client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&optVal, sizeof(optVal));
-      if(client.SendTo(&cmhdr, sizeof(cmhdr)) == sizeof(cmhdr)) {
-	cmhdr.clear();
-	if(client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), 5, 0) == sizeof(cmhdr)) {
-	  int sizebuf = cmhdr.get_word(cmhdr.datagram_size);
-	  if(cm_reply_is_valid(cmhdr) && sizebuf > 0 && sizebuf <= CM_MAX_STATS_SIZE) {
+    {
+      unsigned char rxbuf[CM_RX_BUF_SIZE];
+      int rlen = 0;
+      // Transport-aware exchange: UDP datagram or TCP+TLS per config.
+      if(cm_node_exchange(&statnode.node, CM_CMD_GETSTATS, 0, 0, rxbuf,
+                          CM_RX_BUF_SIZE, &rlen, 5, 0) == 0 && rlen > 0) {
+	  CMFrame reply;
+	  if(cm_parse_frame(rxbuf, rlen, reply) == CM_FRAME_OK && reply.command == CM_CMD_ACK) {
+	    int sizebuf = (int)reply.payload_len;
 	    char *datagram = new char[sizebuf+1];
 	    memset(datagram, 0, (sizebuf+1));
-	    if(client.RemoteRecvFrom(datagram, sizebuf, 15, 0) == sizebuf) {
+	    if(sizebuf > 0) memcpy(datagram, reply.payload, sizebuf);
+	    {
 	      statnode.is_alive = 1;
 	      sbuf << clear << datagram;
 	      while(sbuf.Find("\n\n") != -1) sbuf.ReplaceString("\n\n", "\n");      
@@ -1342,7 +1301,6 @@ int cm_stat()
 	  }
 	}
       }
-    }
     nodelist.Add(statnode);
     ptr = ptr->next;
   }
@@ -1631,52 +1589,32 @@ int get_node_stat_buffer(CMnode *node, gxString &buffer, gxString &error_message
   buffer.Clear();
   error_message.Clear();
 
-  gxSocket client(SOCK_DGRAM, servercfg->udpport, node->keep_alive_ip.c_str());
-  if(!client) {
-    error_message << clear << "ERROR - Fatal error starting CM client socket" << "\n";
+  // The stats reply is one authenticated frame; the stats are its payload.
+  // Transport-aware exchange: UDP datagram or TCP+TLS per config.
+  unsigned char *rxbuf = new unsigned char[CM_RX_BUF_SIZE];
+  int bytes_read = 0;
+  if(cm_node_exchange(node, CM_CMD_GETSTATS, 0, 0, rxbuf, CM_RX_BUF_SIZE,
+                      &bytes_read, 5, 0) != 0 || bytes_read <= 0) {
+    error_message << clear << "ERROR - Error reading CM reply from " <<  node->keep_alive_ip;
+    delete[] rxbuf;
     return 1;
   }
 
-  CM_MessageHeader cmhdr;
-  
-  cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
-  memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
-  cmhdr.set_word(cmhdr.cluster_command, CM_CMD_GETSTATS);
-
-  int optVal = 1;
-  client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&optVal, sizeof(optVal));
-
-  int bytes_moved = client.SendTo(&cmhdr, sizeof(cmhdr));
-  if(bytes_moved != sizeof(cmhdr)) {
-    error_message << clear << "ERROR - Error sending CM header message to " <<  node->keep_alive_ip;
+  CMFrame reply;
+  if(cm_parse_frame(rxbuf, bytes_read, reply) != CM_FRAME_OK || reply.command != CM_CMD_ACK) {
+    error_message << clear << "ERROR - Received bad or unauthenticated CM reply from " <<  node->keep_alive_ip;
+    delete[] rxbuf;
     return 1;
   }
 
-  cmhdr.clear();
-  int bytes_read = client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), 5, 0);
-  if(bytes_read != sizeof(cmhdr)) {
-    error_message << clear << "ERROR - Error reading CM header message from " <<  node->keep_alive_ip;
-    return 1;
-  }
-
-  int sizebuf = cmhdr.get_word(cmhdr.datagram_size);
-  if(!cm_reply_is_valid(cmhdr) || sizebuf <= 0 || sizebuf > CM_MAX_STATS_SIZE) {
-    error_message << clear << "ERROR - Receive bad CM header message from " <<  node->keep_alive_ip;
-    return 1;
-  }
-  char *datagram = new char[sizebuf+1];
-  memset(datagram, 0, (sizebuf+1));
-
-  bytes_read = client.RemoteRecvFrom(datagram, sizebuf, 5, 0);
-  if(bytes_read != sizebuf) {
-    error_message << clear << "ERROR - Receive bad rstats buffer from " <<  node->keep_alive_ip;
+  if(reply.payload_len > 0) {
+    char *datagram = new char[reply.payload_len + 1];
+    memcpy(datagram, reply.payload, reply.payload_len);
+    datagram[reply.payload_len] = '\0';
+    buffer << clear << datagram;
     delete[] datagram;
-    return 1;
   }
-
-
-  buffer << clear << datagram;
-  delete[] datagram;
+  delete[] rxbuf;
 
   return 0;
 }

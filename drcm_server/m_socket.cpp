@@ -35,7 +35,244 @@ Extra socket functions for Datareel cluster manager.
 #include "gxdlcode.h"
 
 #include <errno.h>
+#include <time.h>
+#include <sys/time.h>
 #include "m_socket.h"
+#include "m_tls.h"
+
+// Process-wide send sequence counter for v2 frames. Incremented
+// atomically so every outbound frame carries a unique, increasing
+// sequence regardless of which thread sent it.
+static volatile uint64_t cm_tx_seq = 0;
+
+// The cluster authkey is the HMAC key. load_hash_key() reads a fixed
+// 2048-byte key into servercfg->auth_key, so both ends key identically.
+static const int CM_HMAC_KEY_LEN = 2048;
+
+int cm_build_frame(unsigned char *buf, int cap, int cmd,
+                   const char *payload, int plen)
+{
+  if(!buf || cap <= 0) return -1;
+  unsigned char nonce[CM_NONCE_LEN];
+  if(cm_random_bytes(nonce, CM_NONCE_LEN) != 0) return -1;
+  uint64_t seq = __sync_add_and_fetch(&cm_tx_seq, 1);
+  uint64_t ts = (uint64_t)time(0);
+  size_t out_len = 0;
+  cm_frame_status s = cm_frame_build(buf, (size_t)cap, &out_len,
+                                     (uint8_t)cmd, CM_FLAG_HAS_TIMESTAMP,
+                                     ts, seq, nonce,
+                                     (const uint8_t *)payload,
+                                     (uint32_t)(plen < 0 ? 0 : plen),
+                                     (const uint8_t *)servercfg->auth_key,
+                                     CM_HMAC_KEY_LEN);
+  if(s != CM_FRAME_OK) return -1;
+  return (int)out_len;
+}
+
+int cm_parse_frame(const unsigned char *in_buf, int in_len, CMFrame &f)
+{
+  if(in_len < 0) return CM_FRAME_SHORT;
+  return (int)cm_frame_parse(in_buf, (size_t)in_len, &f,
+                             (const uint8_t *)servercfg->auth_key,
+                             CM_HMAC_KEY_LEN);
+}
+
+int cm_recv_frame_timed(gxSocket &client, unsigned char *buf, int cap,
+                        int timeout_secs, int timeout_usecs)
+{
+  // A cluster reply is a single datagram, so it must be read with one
+  // recvfrom. The gxSocket RecvFrom()/RemoteRecvFrom() variants loop
+  // until the whole buffer is filled, which never completes for a
+  // datagram smaller than the buffer. We set a receive timeout so a
+  // single recvfrom returns the one reply frame (or times out) and
+  // read it with the raw single-datagram call.
+  struct timeval tv;
+  tv.tv_sec = timeout_secs;
+  tv.tv_usec = timeout_usecs;
+  client.SetSockOpt(SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(tv));
+  int n = client.RawReadFrom(buf, cap);
+  if(n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+    // Preserve the caller's timeout detection.
+    client.SetSocketError(gxSOCKET_REQUEST_TIMEOUT);
+  }
+  return n;
+}
+
+// ----------------------------------------------------------- //
+// TCP + TLS client transport (Phase 4).
+//
+// When cluster_transport is CM_TRANSPORT_TCP, cluster messages ride the
+// same v2 authenticated frame but over a mutually-authenticated TLS
+// tunnel instead of a UDP datagram. TLS gives confidentiality and peer
+// authentication on the wire; the HMAC frame still authenticates every
+// message end to end, so a terminated TLS proxy cannot forge a command.
+// ----------------------------------------------------------- //
+
+// A single process-wide client TLS context, built lazily from the
+// configured cluster CA, certificate and key. Reused for every outbound
+// TCP request so the cert/key are parsed once.
+static CMTlsContext *cm_client_tls_ctx()
+{
+  static CMTlsContext ctx;
+  static int inited = 0;
+  static int ok = 0;
+  if(!inited) {
+    inited = 1;
+    int minor = (servercfg->tls_min_version >= 3) ? 3 : 2;
+    if(ctx.init(CM_TLS_CLIENT, servercfg->tls_ca_file.c_str(),
+                servercfg->tls_cert_file.c_str(),
+                servercfg->tls_key_file.c_str(), minor) == CM_TLS_OK) {
+      ok = 1;
+    }
+  }
+  return ok ? &ctx : 0;
+}
+
+// Read exactly one v2 frame from a TLS connection into buf (capacity cap).
+// The header is read first; magic, version and the declared payload length
+// are validated (and the length capped) before the payload is read, so a
+// lie in the length field cannot drive a huge or unbounded read. Returns
+// the total frame length, or <= 0 on error. The caller still authenticates
+// the frame with cm_parse_frame().
+int cm_tls_read_frame(CMTlsConn &conn, unsigned char *buf, int cap)
+{
+  if(cap < CM_FRAME_HDR_LEN) return -1;
+  if(conn.read_full(buf, CM_FRAME_HDR_LEN) != CM_TLS_OK) return -1;
+
+  // Header field offsets mirror m_crypto.cpp: magic@0, version@4,
+  // payload_len@8 (all little-endian).
+  uint32_t magic = (uint32_t)buf[0] | ((uint32_t)buf[1] << 8) |
+                   ((uint32_t)buf[2] << 16) | ((uint32_t)buf[3] << 24);
+  if(magic != CM_FRAME_MAGIC) return -1;
+  if(buf[4] != CM_PROTO_VERSION) return -1;
+
+  uint32_t plen = (uint32_t)buf[8] | ((uint32_t)buf[9] << 8) |
+                  ((uint32_t)buf[10] << 16) | ((uint32_t)buf[11] << 24);
+  if(plen > (uint32_t)CM_MAX_PAYLOAD) return -1;
+  if((int)(CM_FRAME_HDR_LEN + plen) > cap) return -1;
+  if(plen > 0) {
+    if(conn.read_full(buf + CM_FRAME_HDR_LEN, plen) != CM_TLS_OK) return -1;
+  }
+  return (int)(CM_FRAME_HDR_LEN + (int)plen);
+}
+
+// Open a TLS connection to a node, send one request frame, read one reply
+// frame. Returns 0 on success (reply in reply_buf/*reply_len), non-zero on
+// any failure (connect, handshake, verify, I/O or timeout).
+static int cm_tcp_request(CMnode *node, const unsigned char *frame, int frame_len,
+                          unsigned char *reply_buf, int reply_cap, int *reply_len,
+                          int timeout_secs)
+{
+  *reply_len = 0;
+  CMTlsContext *tctx = cm_client_tls_ctx();
+  if(!tctx) return 1; // CA/cert/key not loaded or invalid
+
+  gxSocket sock(SOCK_STREAM, servercfg->tcpport, node->keep_alive_ip.c_str());
+  if(!sock) return 1;
+
+  struct timeval tv;
+  tv.tv_sec = timeout_secs;
+  tv.tv_usec = 0;
+  sock.SetSockOpt(SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(tv));
+  sock.SetSockOpt(SOL_SOCKET, SO_SNDTIMEO, (char *)&tv, sizeof(tv));
+
+  if(sock.Connect() < 0) { sock.Close(); return 1; }
+
+  CMTlsConn conn;
+  const char *fp = node->tls_peer_fingerprint.is_null() ? 0
+                     : node->tls_peer_fingerprint.c_str();
+  if(conn.start(tctx, sock.GetSocket(), fp) != CM_TLS_OK) {
+    sock.Close();
+    return 1;
+  }
+  int rc = 1;
+  if(conn.write_full(frame, frame_len) == CM_TLS_OK) {
+    int n = cm_tls_read_frame(conn, reply_buf, reply_cap);
+    if(n > 0) { *reply_len = n; rc = 0; }
+  }
+  conn.shutdown_conn();
+  sock.Close();
+  return rc;
+}
+
+// Transport-aware request/response used by every client command. Builds an
+// authenticated v2 frame for cmd (+optional payload), sends it over UDP or
+// TCP+TLS per servercfg->cluster_transport, and returns the authenticated
+// reply frame in reply_buf. Returns 0 on success; on a UDP timeout sets
+// *timed_out so callers can distinguish it from other failures.
+int cm_node_exchange(CMnode *node, int cmd, const char *payload, int plen,
+                     unsigned char *reply_buf, int reply_cap, int *reply_len,
+                     int timeout_secs, int *timed_out)
+{
+  if(timed_out) *timed_out = 0;
+  if(reply_len) *reply_len = 0;
+
+  unsigned char txbuf[CM_RX_BUF_SIZE];
+  int flen = cm_build_frame(txbuf, sizeof(txbuf), cmd, payload, plen);
+  if(flen < 0) return 1;
+
+  if(servercfg->cluster_transport == CM_TRANSPORT_TCP) {
+    return cm_tcp_request(node, txbuf, flen, reply_buf, reply_cap,
+                          reply_len, timeout_secs);
+  }
+
+  // Default UDP datagram transport.
+  gxSocket client(SOCK_DGRAM, servercfg->udpport, node->keep_alive_ip.c_str());
+  if(!client) return 1;
+  int optVal = 1;
+  client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&optVal, sizeof(optVal));
+  if(client.SendTo(txbuf, flen) != flen) return 1;
+  int n = cm_recv_frame_timed(client, reply_buf, reply_cap, timeout_secs, 0);
+  if(n <= 0) {
+    if(timed_out && client.GetSocketError() == gxSOCKET_REQUEST_TIMEOUT)
+      *timed_out = 1;
+    return 1;
+  }
+  if(reply_len) *reply_len = n;
+  return 0;
+}
+
+// Witness-based quorum check (Phase 4).
+//
+// In a two-node cluster a broken link between the peers looks exactly like
+// a dead peer, so both sides could try to own the resources at once
+// (split brain / false failover). When quorum_required is set, a node may
+// only take over resources if it still has quorum: it must be able to
+// reach the witness. Reaching the witness but not the peer means this node
+// is in the majority partition (itself + witness) and may fail over;
+// failing to reach the witness as well means this node is probably the
+// isolated minority and must stand down. This directly blocks an attacker
+// or a network cut from triggering a bogus failover.
+//
+// The witness is any reachable DRCM endpoint that answers the
+// authenticated v2 protocol over the configured transport. Returns 1 if
+// quorum is held (or the feature is off), 0 if this node must stand down.
+int cm_have_quorum()
+{
+  if(!servercfg->quorum_required) return 1; // feature disabled: always allowed
+  if(servercfg->witness_endpoint.is_null()) return 0; // required but unset: fail closed
+
+  // witness_endpoint may be "host" or "host:port"; the witness listens on
+  // the cluster's standard port, so only the host part is used here.
+  gxString host = servercfg->witness_endpoint;
+  if(host.Find(":") != -1) host.DeleteAfterIncluding(":");
+  host.TrimLeading(' '); host.TrimTrailing(' ');
+  if(host.is_null()) return 0;
+
+  CMnode witness;
+  witness.keep_alive_ip = host;
+
+  unsigned char reply[CM_RX_BUF_SIZE];
+  int reply_len = 0;
+  if(cm_node_exchange(&witness, CM_CMD_PING, 0, 0, reply, sizeof(reply),
+                      &reply_len, 2, 0) != 0 || reply_len <= 0) {
+    return 0; // cannot reach the witness -> no quorum
+  }
+  CMFrame rf;
+  if(cm_parse_frame(reply, reply_len, rf) != CM_FRAME_OK || rf.command != CM_CMD_ACK)
+    return 0; // witness did not authenticate -> no quorum
+  return 1;
+}
 
 int get_fd_socket_error(int &error_number, gxString &sbuf)
 {
@@ -537,72 +774,37 @@ int cm_reply_is_valid(CM_MessageHeader &cmhdr)
 // error_level = 3 for read error
 int send_keep_alive(CMnode *n, int &error_level, int timeout_secs, int timeout_usecs)
 {
-  int error_number = 0;
-  gxString message, sbuf;
+  gxString message;
   error_level = 0;
-  gxSocket client(SOCK_DGRAM, servercfg->udpport, n->keep_alive_ip.c_str());
-  if(!client) {
-    if(servercfg->debug) {
-      get_fd_socket_error(error_number, sbuf);
-      message << clear << "ERROR - Fatal error starting CM keep alive client ENUM: " << error_number << " Message: " << sbuf;
-      LogDebugMessage(message.c_str());
-    }
-    else {
-      message << clear << "ERROR - Fatal error starting CM keep alive client";
-      LogMessage(message.c_str());
-    }
-    error_level = -1; // Fatal error
-    return 1;
-  }
 
-  CM_MessageHeader cmhdr;
-  
-  cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
-  memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
-  cmhdr.set_word(cmhdr.cluster_command, CM_CMD_KEEPALIVE);
-
-  int optVal = 1;
-  client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&optVal, sizeof(optVal));
-
-  // Send the client header
-  int bytes_moved = client.RawWriteTo(&cmhdr, sizeof(cmhdr));
-  get_fd_socket_error(error_number, sbuf);
-  if(bytes_moved != sizeof(cmhdr)) {
+  // Transport-aware keep alive: an authenticated KEEPALIVE frame over UDP
+  // or TCP+TLS per servercfg->cluster_transport. The reply must
+  // authenticate (valid HMAC) and be an ACK.
+  unsigned char rxbuf[CM_RX_BUF_SIZE];
+  int bytes_read = 0;
+  int timed_out = 0;
+  int rc = cm_node_exchange(n, CM_CMD_KEEPALIVE, 0, 0, rxbuf, sizeof(rxbuf),
+                            &bytes_read, timeout_secs, &timed_out);
+  if(rc != 0 || bytes_read <= 0) {
+    // For UDP a clean timeout maps to error_level 2 (the keep alive logic
+    // treats a timeout as a missed heartbeat); any other failure is 3.
+    error_level = timed_out ? 2 : 3;
     if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
-      message << clear << "ERROR - Error sending CM header to " << n->keep_alive_ip.c_str();
-      LogDebugMessage(message.c_str());
-      message << clear << "CM header send() Return: " << bytes_moved << " ENUM: " << error_number << " Message: " << sbuf;
-      LogDebugMessage(message.c_str());
-    }
-    error_level = 1;
-    return 1;
-  }
-
-  cmhdr.clear();
-  int bytes_read = client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), timeout_secs, timeout_usecs);
-  get_fd_socket_error(error_number, sbuf);
-  if(bytes_read != sizeof(cmhdr)) {
-    error_level = 3;
-    if(client.GetSocketError() == gxSOCKET_REQUEST_TIMEOUT) {
-      error_level = 2;
-      if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
-	message << clear << "ERROR - Receive timeout reading CM header from " << n->keep_alive_ip.c_str();
-	LogDebugMessage(message.c_str());
-      }
-    }
-    else if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
-      message << clear << "ERROR - Receiving CM header from " << n->keep_alive_ip.c_str();
-      LogDebugMessage(message.c_str());
-      message << clear << "CM header recvfrom() Return: " << bytes_read << " ENUM: " << error_number << " Message: " << sbuf;
+      if(timed_out)
+	message << clear << "ERROR - Receive timeout reading CM reply from " << n->keep_alive_ip.c_str();
+      else
+	message << clear << "ERROR - Error exchanging CM keep alive with " << n->keep_alive_ip.c_str();
       LogDebugMessage(message.c_str());
     }
     return 1;
   }
 
-  // Only count a reply that carries our checkword, auth hash and an ACK
-  if(!cm_reply_is_valid(cmhdr)) {
+  // Only count a reply that authenticates (valid HMAC) and is an ACK.
+  CMFrame reply;
+  if(cm_parse_frame(rxbuf, bytes_read, reply) != CM_FRAME_OK ||
+     reply.command != CM_CMD_ACK) {
     if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
-      message << clear << "ERROR - Bad keep alive reply from " << n->keep_alive_ip.c_str();
+      message << clear << "ERROR - Bad or unauthenticated keep alive reply from " << n->keep_alive_ip.c_str();
       LogDebugMessage(message.c_str());
     }
     error_level = 3;

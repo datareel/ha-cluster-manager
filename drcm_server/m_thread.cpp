@@ -37,6 +37,7 @@ Multi-threaded framework Datareel cluster manager.
 #include <regex.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
 
 #include "gxstring.h"
 #include "gxlist.h"
@@ -49,6 +50,7 @@ Multi-threaded framework Datareel cluster manager.
 
 #include "m_thread.h"
 #include "m_log.h"
+#include "m_tls.h"
 
 int get_fd_thread_error(int &error_number, gxString &sbuf)
 {
@@ -106,12 +108,25 @@ int CM_UDP_ServerThread::InitServer()
 void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
 {
   gxString message, sbuf;
-  CM_MessageHeader cmhdr, cmhdr_dup;
   int err_count = 0;
   int recv_err_count = 0;
   int error_number = 0;
 
-  while(servercfg->accept_clients) { 
+  // Per-thread anti-replay state shared across peers. The nonce cache
+  // rejects an exact replayed datagram with no clock dependency. UDP
+  // commands are read-only/liveness so sequence is not enforced strictly
+  // (a peer restart legitimately resets it); the optional timestamp
+  // window is enabled when replay_window_secs is configured.
+  CMReplayState rst;
+  if(servercfg->replay_window_secs > 0) {
+    rst.use_timestamp = 1;
+    rst.window_secs = (uint32_t)servercfg->replay_window_secs;
+  }
+
+  unsigned char rxbuf[CM_RX_BUF_SIZE];
+  unsigned char txbuf[CM_RX_BUF_SIZE];
+
+  while(servercfg->accept_clients) {
     if(servercfg->restart_server) break;
     if(servercfg->kill_server) break;
 
@@ -119,33 +134,23 @@ void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
       LogDebugMessage("CM UDP server accepting clients");
     }
 
-    cmhdr.clear(); 
     memset(&remote_sin, 0, sizeof(remote_sin));
 
-    // Block the until cluster nodes sends a CM message
-    int rv = RemoteRecvFrom(&cmhdr, sizeof(cmhdr));
+    // Block until a cluster node sends a CM frame. A frame is one
+    // datagram, so it must be read with a single recvfrom;
+    // RemoteRecvFrom() loops until the whole buffer is filled and would
+    // never return for a datagram smaller than the buffer.
+    int rv = RemoteRawReadFrom(rxbuf, sizeof(rxbuf));
     get_fd_thread_error(error_number, sbuf);
 
     char client_name[gxsMAX_NAME_LEN]; int r_port = -1;
     GetClientInfo(client_name, r_port);
     int seq_num = r_port;
-    if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
-      message << clear << "[" << seq_num << "]: UDP client connect: " << client_name;
-      LogDebugMessage(message.c_str());
-      message << clear << "[" << seq_num << "]: Validating UDP client connection";
-      LogDebugMessage(message.c_str());
-    }
 
-    if(rv != sizeof(cmhdr)) {
-      if(servercfg->debug) {
-	message << clear << "[" << seq_num << "]: ERROR - Received invalid UDP message header";
-	LogDebugMessage(message.c_str());
-	message << clear << "[" << seq_num << "]: revcfrom() Return: " << rv << " ENUM: " << error_number << " Message: " << sbuf;
-	LogDebugMessage(message.c_str());
-      }
+    if(rv <= 0) {
       recv_err_count++;
       if(recv_err_count > 100) {
-	message << clear << "[" << seq_num << "]: ERROR - Received invalid UDP message header, error count over 100";
+	message << clear << "[" << seq_num << "]: ERROR - UDP receive error count over 100";
 	LogMessage(message.c_str());
 	recv_err_count = 0;
       }
@@ -154,24 +159,31 @@ void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
     }
     recv_err_count = 0;
 
-    // Make sure the client header is in sync
-    if(cmhdr.get_word(cmhdr.checkword) != NET_CHECKWORD) {
-      message << clear << "[" << seq_num << "]: ERROR - Bad or wrong UDP checkword received from " << client_name;
+    // Authenticate the frame (verifies the HMAC with the cluster key).
+    // A forged, tampered or wrong-key frame fails here and is dropped.
+    CMFrame f;
+    int pstat = cm_parse_frame(rxbuf, rv, f);
+    if(pstat != CM_FRAME_OK) {
+      message << clear << "[" << seq_num << "]: ERROR - Rejected unauthenticated or malformed frame from " << client_name;
       LogMessage(message.c_str());
       err_count++;
       continue;
     }
 
-    // Check the SHA1 hash
-    if(memcmp(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum)) != 0) {
-      message << clear << "[" << seq_num << "]: ERROR - Bad or wrong auth key hash received from " << client_name;
-      LogMessage(message.c_str());
-      err_count++;
+    // Reject a replayed frame (repeated nonce, or outside the timestamp
+    // window when that mode is enabled).
+    if(cm_replay_check(&rst, &f, (uint64_t)time(0)) != CM_FRAME_OK) {
+      if(servercfg->debug) {
+	message << clear << "[" << seq_num << "]: WARNING - Dropped replayed frame from " << client_name;
+	LogDebugMessage(message.c_str());
+      }
       continue;
     }
 
-    int cluster_command = cmhdr.get_word(cmhdr.cluster_command);
+    int cluster_command = f.command;
     gxString stats_buf;
+    int bmoved = 0;
+    int frame_len = 0;
 
     switch(cluster_command) {
       case CM_CMD_NAK:
@@ -182,70 +194,41 @@ void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
 	break;
 
       case CM_CMD_PING:
-	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
-	  message << clear << "[" << seq_num << "]: Received ping command from " << client_name;
-	  LogDebugMessage(message.c_str());
-	}
-	cmhdr_dup.copy(cmhdr);
-	cmhdr_dup.set_word(cmhdr_dup.cluster_command, CM_CMD_ACK);
-	bytes_moved = RemoteRawWriteTo(&cmhdr_dup, sizeof(cmhdr_dup));
-	get_fd_thread_error(error_number, sbuf);
-	if(bytes_moved !=  sizeof(cmhdr_dup)) {
-	  if(servercfg->debug) {
-	    message << clear << "[" << seq_num << "]: ERROR - Error sending ping ack to " << client_name;
-	    LogDebugMessage(message.c_str());
-	    message << clear << "[" << seq_num << "]: send() Return: " << bytes_moved << " ENUM: " << error_number << " Message: " << sbuf;
-	    LogDebugMessage(message.c_str());
-	  }
-	}
-	break;
       case CM_CMD_KEEPALIVE:
 	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
-	  message << clear << "[" << seq_num << "]: Received keep alive command from " << client_name;
+	  message << clear << "[" << seq_num << "]: Received " << (cluster_command == CM_CMD_PING ? "ping" : "keep alive") << " command from " << client_name;
 	  LogDebugMessage(message.c_str());
 	}
-	cmhdr_dup.copy(cmhdr);
-	cmhdr_dup.set_word(cmhdr_dup.cluster_command, CM_CMD_ACK);
-	bytes_moved = RemoteRawWriteTo(&cmhdr_dup, sizeof(cmhdr_dup));
-	get_fd_thread_error(error_number, sbuf);
-	if(bytes_moved !=  sizeof(cmhdr_dup)) {
-	  if(servercfg->debug) {
-	    message << clear << "[" << seq_num << "]: ERROR - Error sending keep alive ack to " << client_name;
-	    LogDebugMessage(message.c_str());
-	    message << clear << "[" << seq_num << "]: send() Return: " << bytes_moved << " ENUM: " << error_number << " Message: " << sbuf;
+	frame_len = cm_build_frame(txbuf, sizeof(txbuf), CM_CMD_ACK, 0, 0);
+	if(frame_len > 0) {
+	  bmoved = RemoteRawWriteTo(txbuf, frame_len);
+	  get_fd_thread_error(error_number, sbuf);
+	  if(bmoved != frame_len && servercfg->debug) {
+	    message << clear << "[" << seq_num << "]: ERROR - Error sending ack to " << client_name;
 	    LogDebugMessage(message.c_str());
 	  }
 	}
 	break;
+
       case CM_CMD_GETSTATS:
 	servercfg->stats.Get(stats_buf);
 	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
 	  message << clear << "[" << seq_num << "]: Received get stats command from " << client_name;
 	  LogDebugMessage(message.c_str());
 	}
-
-	cmhdr_dup.copy(cmhdr);
-	cmhdr_dup.set_word(cmhdr_dup.cluster_command, CM_CMD_ACK);
-	cmhdr_dup.set_word(cmhdr_dup.datagram_size, stats_buf.length());
-	bytes_moved = RemoteRawWriteTo(&cmhdr_dup, sizeof(cmhdr_dup));
-	get_fd_thread_error(error_number, sbuf);
-	if(bytes_moved !=  sizeof(cmhdr_dup)) {
-	  if(servercfg->debug) {
-	    message << clear << "[" << seq_num << "]: ERROR - Error sending stats ack to " << client_name;
-	    LogDebugMessage(message.c_str());
-	    message << clear << "[" << seq_num << "]: send() Return: " << bytes_moved << " ENUM: " << error_number << " Message: " << sbuf;
-	    LogDebugMessage(message.c_str());
-	  }
+	// The stats reply is one authenticated frame: ACK + stats payload.
+	frame_len = cm_build_frame(txbuf, sizeof(txbuf), CM_CMD_ACK,
+				   stats_buf.c_str(), (int)stats_buf.length());
+	if(frame_len < 0) {
+	  message << clear << "[" << seq_num << "]: ERROR - Stats too large to send to " << client_name;
+	  LogMessage(message.c_str());
+	  break;
 	}
-	bytes_moved = RemoteRawWriteTo(stats_buf.c_str(), stats_buf.length());
+	bmoved = RemoteRawWriteTo(txbuf, frame_len);
 	get_fd_thread_error(error_number, sbuf);
-	if((unsigned)bytes_moved !=  stats_buf.length()) {
-	  if(servercfg->debug) {
-	    message << clear << "[" << seq_num << "]: ERROR - Error sending stats to " << client_name;
-	    LogDebugMessage(message.c_str());
-	    message << clear << "[" << seq_num << "]: send() Return: " << bytes_moved << " ENUM: " << error_number << " Message: " << sbuf;
-	    LogDebugMessage(message.c_str());
-	  }
+	if(bmoved != frame_len && servercfg->debug) {
+	  message << clear << "[" << seq_num << "]: ERROR - Error sending stats to " << client_name;
+	  LogDebugMessage(message.c_str());
 	}
 	break;
 
@@ -282,6 +265,182 @@ void CM_UDP_ServerThread::ThreadCleanupHandler(gxThread_t *thread)
 {
   if(servercfg->debug && servercfg->debug_level >= 5) {
     LogDebugMessage("CM UDP server thread cleanup handler called");
+  }
+  Close();
+}
+
+// ----------------------------------------------------------- //
+// TCP + TLS cluster server thread (Phase 4).
+// ----------------------------------------------------------- //
+int CM_TCP_ServerThread::InitServer()
+// Create, bind and listen on the TCP port. Returns non-zero on error.
+{
+  if(InitSocketLibrary() != 0) return 1;
+  if(InitSocket(SOCK_STREAM, servercfg->tcpport) < 0) return 1;
+
+  int reuse = 1;
+  if(setsockopt(gxsocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)) < 0) {
+    if(servercfg->debug) LogMessage("ERROR - TCP socket error setting SO_REUSEADDR option");
+  }
+
+  if(servercfg->bind_to_keep_alive_ip) {
+    gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
+    while(ptr) {
+      if(ptr->data->hostname == servercfg->my_hostname) break;
+      ptr = ptr->next;
+    }
+    if(ptr) inet_aton(ptr->data->keep_alive_ip.c_str(), &sin.sin_addr);
+  }
+
+  if(Bind() < 0) {
+    LogMessage("ERROR - Fatal bind() error initializing TCP server");
+    CheckSocketError((gxSocket *)this);
+    Close();
+    return 1;
+  }
+  if(Listen(16) < 0) {
+    LogMessage("ERROR - Fatal listen() error initializing TCP server");
+    Close();
+    return 1;
+  }
+  return 0;
+}
+
+void *CM_TCP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
+{
+  gxString message;
+
+  // One server TLS context for the life of the thread. Both ends present
+  // a cluster-CA-signed certificate and verify the peer against the CA,
+  // so an unauthenticated TLS client is rejected at the handshake.
+  CMTlsContext tctx;
+  int minor = (servercfg->tls_min_version >= 3) ? 3 : 2;
+  if(tctx.init(CM_TLS_SERVER, servercfg->tls_ca_file.c_str(),
+               servercfg->tls_cert_file.c_str(),
+               servercfg->tls_key_file.c_str(), minor) != CM_TLS_OK) {
+    message << clear << "ERROR - TCP server TLS init failed: " << tctx.last_error();
+    LogMessage(message.c_str());
+    Close();
+    return (void *)0;
+  }
+
+  // Per-thread anti-replay state. The nonce cache rejects a replayed frame
+  // with no clock dependency; the optional timestamp window is enabled
+  // when replay_window_secs is configured.
+  CMReplayState rst;
+  if(servercfg->replay_window_secs > 0) {
+    rst.use_timestamp = 1;
+    rst.window_secs = (uint32_t)servercfg->replay_window_secs;
+  }
+
+  unsigned char rxbuf[CM_RX_BUF_SIZE];
+  unsigned char txbuf[CM_RX_BUF_SIZE];
+
+  if(servercfg->debug && servercfg->debug_level >= 5) {
+    LogDebugMessage("CM TCP server accepting TLS clients");
+  }
+
+  while(servercfg->accept_clients) {
+    if(servercfg->restart_server) break;
+    if(servercfg->kill_server) break;
+
+    gxsSocket_t cfd = Accept();
+    if(cfd < 0) { sSleep(1); continue; }
+
+    char client_name[gxsMAX_NAME_LEN]; int r_port = -1;
+    GetClientInfo(client_name, r_port);
+
+    CMTlsConn conn;
+    if(conn.start(&tctx, cfd, 0) != CM_TLS_OK) {
+      if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
+	message << clear << "[" << r_port << "]: WARNING - TLS handshake/verify failed from " << client_name;
+	LogDebugMessage(message.c_str());
+      }
+      conn.shutdown_conn();
+      Close(cfd);
+      continue;
+    }
+
+    int rv = cm_tls_read_frame(conn, rxbuf, sizeof(rxbuf));
+    if(rv <= 0) { conn.shutdown_conn(); Close(cfd); continue; }
+
+    // Authenticate the frame (HMAC with the cluster key).
+    CMFrame f;
+    if(cm_parse_frame(rxbuf, rv, f) != CM_FRAME_OK) {
+      message << clear << "[" << r_port << "]: ERROR - Rejected unauthenticated or malformed TCP frame from " << client_name;
+      LogMessage(message.c_str());
+      conn.shutdown_conn(); Close(cfd);
+      continue;
+    }
+    // Reject a replayed frame.
+    if(cm_replay_check(&rst, &f, (uint64_t)time(0)) != CM_FRAME_OK) {
+      if(servercfg->debug) {
+	message << clear << "[" << r_port << "]: WARNING - Dropped replayed TCP frame from " << client_name;
+	LogDebugMessage(message.c_str());
+      }
+      conn.shutdown_conn(); Close(cfd);
+      continue;
+    }
+
+    int frame_len = 0;
+    gxString stats_buf;
+    switch(f.command) {
+      case CM_CMD_PING:
+      case CM_CMD_KEEPALIVE:
+	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
+	  message << clear << "[" << r_port << "]: Received " << (f.command == CM_CMD_PING ? "ping" : "keep alive") << " command (TCP) from " << client_name;
+	  LogDebugMessage(message.c_str());
+	}
+	frame_len = cm_build_frame(txbuf, sizeof(txbuf), CM_CMD_ACK, 0, 0);
+	if(frame_len > 0) conn.write_full(txbuf, frame_len);
+	break;
+
+      case CM_CMD_GETSTATS:
+	servercfg->stats.Get(stats_buf);
+	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
+	  message << clear << "[" << r_port << "]: Received get stats command (TCP) from " << client_name;
+	  LogDebugMessage(message.c_str());
+	}
+	frame_len = cm_build_frame(txbuf, sizeof(txbuf), CM_CMD_ACK,
+				   stats_buf.c_str(), (int)stats_buf.length());
+	if(frame_len < 0) {
+	  message << clear << "[" << r_port << "]: ERROR - Stats too large to send (TCP) to " << client_name;
+	  LogMessage(message.c_str());
+	  break;
+	}
+	conn.write_full(txbuf, frame_len);
+	break;
+
+      default:
+	if(servercfg->debug) {
+	  message << clear << "[" << r_port << "]: WARNING - Received bad or unknown command (TCP) from " << client_name;
+	  LogDebugMessage(message.c_str());
+	}
+	break;
+    }
+
+    conn.shutdown_conn();
+    Close(cfd);
+  }
+
+  if(servercfg->debug && servercfg->debug_level >= 5) {
+    LogDebugMessage("CM TCP server exiting thread entry routine");
+  }
+  Close();
+  return (void *)0;
+}
+
+void CM_TCP_ServerThread::ThreadExitRoutine(gxThread_t *thread)
+{
+  if(servercfg->debug && servercfg->debug_level >= 5) {
+    LogDebugMessage("CM TCP server thread exit routine called");
+  }
+}
+
+void CM_TCP_ServerThread::ThreadCleanupHandler(gxThread_t *thread)
+{
+  if(servercfg->debug && servercfg->debug_level >= 5) {
+    LogDebugMessage("CM TCP server thread cleanup handler called");
   }
   Close();
 }
@@ -437,6 +596,19 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
 	failed_message_count++;
 	if(failed_message_count >= max_failed_message_count) failed_message_count = 0;
 	if(error_count >= max_errors) {
+	  // Quorum gate: in quorum mode a node may take over only if it still
+	  // holds quorum (can reach the witness). Without quorum this node is
+	  // likely the isolated minority, so it must not fail over the peer's
+	  // resources -- this blocks a split brain, a network cut or an
+	  // attacker from forcing a bogus failover.
+	  if(!cm_have_quorum()) {
+	    if(message_count == 0) {
+	      message << clear << "WARNING - Node " << ptr->data->nodename
+	              << " unreachable but this node has NO QUORUM (cannot reach witness); standing down, not failing over";
+	      LogMessage(message.c_str());
+	    }
+	    break;
+	  }
 	  if(ptr->data->CLUSTER_TAKE_OVER_FLAG() == 0) {	
 	    ptr->data->CLUSTER_TAKE_OVER_FLAG(1, 0);
 	    message << clear << "Node " << ptr->data->nodename << " is dead, signaling cluster resource failover to active nodes";

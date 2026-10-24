@@ -195,8 +195,13 @@ struct CMnode {
   CMnode *active_ptr;
   int node_is_active;
 
+  // TCP/cloud mode (Phase 4). Optional per node.
+  gxList<gxString> peer_endpoints;   // one or more host:port heartbeat paths
+  gxString tls_peer_fingerprint;     // optional SHA-256 cert pin for this peer
+  gxString floating_ip_provider;     // cloud provider hook, e.g. "aws"
+
 private:
-  int cluster_take_over_flag; 
+  int cluster_take_over_flag;
   gxMutex cluster_take_over_flag_lock;
   int cluster_take_over_flag_is_locked;
 };
@@ -218,6 +223,10 @@ struct CMstatsnode {
   int is_alive;
   gxList<gxString> stats;
 };
+
+// Cluster transport selection (servercfg->cluster_transport)
+const int CM_TRANSPORT_UDP = 0; // UDP keep alive, same-subnet clusters (default)
+const int CM_TRANSPORT_TCP = 1; // TCP + TLS, internet / cloud clusters
 
 struct CMconfig {
   CMconfig(); 
@@ -254,6 +263,18 @@ struct CMconfig {
   gxsPort_t udpport;
   gxsPort_t tcpport;
   int dead_node_count;
+
+  // Transport and TCP/TLS mode (Phase 4). cluster_transport selects the
+  // wire transport: 0 = UDP (default, LAN), 1 = TCP+TLS (internet/cloud).
+  int cluster_transport;          // CM_TRANSPORT_UDP or CM_TRANSPORT_TCP
+  gxString tls_ca_file;           // cluster CA used to verify peers
+  gxString tls_cert_file;         // this node's certificate
+  gxString tls_key_file;          // this node's private key
+  int tls_min_version;            // 2 for TLS 1.2 (default), 3 for TLS 1.3
+  int replay_window_secs;         // timestamp window; 0 = seq-only (default)
+  gxString witness_endpoint;      // optional quorum witness host:port
+  int quorum_required;            // 1 = need witness agreement before takeover
+
   gxString my_hostname;
   gxString run_dir, log_dir, spool_dir;
   gxString etc_dir;
