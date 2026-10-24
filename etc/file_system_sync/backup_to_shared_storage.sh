@@ -95,6 +95,9 @@ if [ -z "${DRCMdir}" ]; then export DRCMdir="/etc/drcm"; fi
 if [ -z "${VARdir}" ]; then export VARdir="/var/run/drcm"; fi
 if [ -z "${RYSNC}" ]; then export RYSNC="rsync"; fi
 if [ -z "${SSH}" ]; then export SSH="ssh"; fi
+# Host keys of the other nodes must be known: accept-new trusts a key
+# the first time and refuses a key that changes
+if [ -z "${DRCM_SSH_OPTS}" ]; then export DRCM_SSH_OPTS="-o StrictHostKeyChecking=accept-new"; fi
 
 # Set RSYNC args for directory mirror
 if [ -z "${RYSNCargs}" ]; then export RYSNCargs="-AavPh --delete --sparse --progress --force --stats"; fi
@@ -143,7 +146,7 @@ RsyncMirror()
 	return
     fi
 
-    ${SSH} -o stricthostkeychecking=no -n ${BACKUP_STORAGE_SERVER} mkdir -p ${BACKUP_STORAGE_LOCATION}${1}  >> ${LOGfile}
+    ${SSH} ${DRCM_SSH_OPTS} -n ${BACKUP_STORAGE_SERVER} mkdir -p ${BACKUP_STORAGE_LOCATION}${1}  >> ${LOGfile}
     if [ $? -ne 0 ]
 	then
 	echo "SSH command to ${BACKUP_STORAGE_SERVER} failed" | tee -a ${LOGfile}
@@ -175,7 +178,7 @@ RsyncCopy()
 	return
     fi
 
-    ${SSH} -o stricthostkeychecking=no -n ${BACKUP_STORAGE_SERVER} mkdir -p ${BACKUP_STORAGE_LOCATION}${1}  >> ${LOGfile}
+    ${SSH} ${DRCM_SSH_OPTS} -n ${BACKUP_STORAGE_SERVER} mkdir -p ${BACKUP_STORAGE_LOCATION}${1}  >> ${LOGfile}
     if [ $? -ne 0 ]
 	then
 	echo "SSH command to ${BACKUP_STORAGE_SERVER} failed" | tee -a ${LOGfile}
@@ -215,7 +218,7 @@ RsyncRotate()
 	echo "Preforming 30 day rotating backup" | tee -a ${LOGfile}
     fi
 
-    ${SSH} -o stricthostkeychecking=no -n ${BACKUP_STORAGE_SERVER} mkdir -p ${BACKUP_STORAGE_LOCATION}/Rotating/${BackupNumber}${1}  >> ${LOGfile}
+    ${SSH} ${DRCM_SSH_OPTS} -n ${BACKUP_STORAGE_SERVER} mkdir -p ${BACKUP_STORAGE_LOCATION}/Rotating/${BackupNumber}${1}  >> ${LOGfile}
     if [ $? -ne 0 ]
 	then
 	echo "SSH command to ${BACKUP_STORAGE_SERVER} failed" | tee -a ${LOGfile}
@@ -250,7 +253,7 @@ echo "Starting backup at ${DATETIME} UTC" | tee -a ${LOGfile}
 echo "Backup server ${BACKUP_STORAGE_SERVER}" | tee -a ${LOGfile}
 echo "Backup server directory${BACKUP_STORAGE_LOCATION}" | tee -a ${LOGfile}
 
-${SSH} -o stricthostkeychecking=no -n ${BACKUP_STORAGE_SERVER} mkdir -p ${BACKUP_STORAGE_LOCATION}  >> ${LOGfile}
+${SSH} ${DRCM_SSH_OPTS} -n ${BACKUP_STORAGE_SERVER} mkdir -p ${BACKUP_STORAGE_LOCATION}  >> ${LOGfile}
 if [ $? -ne 0 ]
     then
     echo "SSH command to ${BACKUP_STORAGE_SERVER} failed" | tee -a ${LOGfile}

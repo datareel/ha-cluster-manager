@@ -301,8 +301,8 @@ int CMconfig::QUEUE_NODE_COUNT()
   queue_node_count_is_locked = 1; 
 
   // ********** Enter Critical Section ******************* //
-  if(queue_node_count == log_queue_size) queue_node_count = 0; 
-  queue_node_count++;
+  // Wrap at this queue's own size so the index stays inside the array
+  queue_node_count = (queue_node_count + 1) % log_queue_size;
   int buf = queue_node_count;
   // ********** Leave Critical Section ******************* //
 
@@ -319,8 +319,8 @@ int CMconfig::QUEUE_DEBUG_COUNT()
   queue_debug_count_is_locked = 1;
 
   // ********** Enter Critical Section ******************* //
-  if(queue_debug_count == log_queue_size) queue_debug_count = 0; 
-  queue_debug_count++;
+  // Wrap at this queue's own size so the index stays inside the array
+  queue_debug_count = (queue_debug_count + 1) % log_queue_debug_size;
   int buf = queue_debug_count;
   // ********** Leave Critical Section ******************* //
 
@@ -337,8 +337,8 @@ int CMconfig::QUEUE_PROC_COUNT()
   queue_proc_count_is_locked = 1; 
 
   // ********** Enter Critical Section ******************* //
-  if(queue_proc_count == log_queue_size) queue_proc_count = 0; 
-  queue_proc_count++;
+  // Wrap at this queue's own size so the index stays inside the array
+  queue_proc_count = (queue_proc_count + 1) % log_queue_proc_size;
   int buf = queue_proc_count;
   // ********** Leave Critical Section ******************* //
 
@@ -616,13 +616,55 @@ int CfgGetEqualToParm(const gxString &cfgline)
   return parm.Atoi();
 }
 
-char *CfgGetEqualToParm(const gxString &cfgline, char sbuf[255])
+gxString CfgGetEqualToString(const gxString &cfgline)
 {
-  memset(sbuf, 0, 255);
   gxString parm;
   CfgGetEqualToParm(cfgline, parm);
-  strcpy(sbuf, parm.c_str());
-  return sbuf;
+  return parm;
+}
+
+// Get the setting name to the left of the = sign, in lower case.
+// Settings are matched by their full name, so "debug" does not
+// also match "debug_level". Lines with no = sign give a null key.
+void CfgGetKey(const gxString &cfgline, gxString &key)
+{
+  key.Clear();
+  if(cfgline.Find("=") == -1) return;
+  key = cfgline;
+  key.DeleteAfterIncluding("=");
+  key.TrimLeadingSpaces();
+  key.TrimTrailingSpaces();
+  key.ToLower();
+}
+
+const char *cfg_server_keys[] = {
+  "debug", "debug_level", "verbose", "verbose_level", "clear_log",
+  "logfile", "logfile_name", "enable_logging", "log_level", "service_name",
+  "num_logs_to_keep", "max_log_size", "log_queue_size", "log_queue_debug_size",
+  "log_queue_proc_size", "udpport", "tcpport", "dead_node_count", "run_dir",
+  "log_dir", "spool_dir", "cluster_user", "cluster_group", "cluster_umask",
+  "cluser_mask", "sudo_command", "bind_to_keep_alive_ip",
+  "bash_shell", "bash_rc_file", // Used by the resource scripts
+  0
+};
+
+const char *cfg_node_keys[] = {
+  "nodename", "hostname", "node_is_active", "keep_services", "keep_filesystems",
+  "keep_applications", "keep_alive_ip", "crontabs_check", "services_check",
+  "applications_check", "ipaddrs_check", "ipaddr_check", "ipapddrs_check",
+  "filesystems_check", "node_crontabs", "node_backup_crontabs",
+  "node_floating_ip_addrs", "node_backup_floating_ip_addrs", "node_services",
+  "node_backup_services", "node_applications", "node_backup_applications",
+  "node_filesystems", "node_backup_filesystems",
+  0
+};
+
+int CfgIsKnownKey(const gxString &key, const char *keys[])
+{
+  for(int i = 0; keys[i]; i++) {
+    if(key == keys[i]) return 1;
+  }
+  return 0;
 }
 
 int LoadOrBuildConfigFile()
@@ -857,8 +899,8 @@ int LoadOrBuildConfigFile()
   int has_cmserver = 0;
   int has_cmnode = 0;
   ptr = list.GetHead();
-  char pbuf[255];
   gxString parm;
+  gxString cfgkey;
 
   gxString line_dup;
   gxListNode<gxString> *listptr;
@@ -884,42 +926,46 @@ int LoadOrBuildConfigFile()
 	  break;
 	}
 	// Add all server conifg reads here
-	if(ptr->data.Find("debug") != -1) {
+	CfgGetKey(ptr->data, cfgkey);
+	if(!cfgkey.is_null() && !CfgIsKnownKey(cfgkey, cfg_server_keys)) {
+	  NT_print("WARNING - Unknown [CM_SERVER] config setting:", cfgkey.c_str());
+	}
+	if(cfgkey == "debug") {
 	  if(!servercfg->has_debug_override) servercfg->debug = CfgGetTrueFalseValue(ptr->data);
 	}
-	if(ptr->data.Find("debug_level") != -1) {
+	if(cfgkey == "debug_level") {
 	  if(!servercfg->has_debug_level_override) servercfg->debug_level = CfgGetEqualToParm(ptr->data);
 	}
-	if(ptr->data.Find("verbose") != -1) {
+	if(cfgkey == "verbose") {
 	  if(!servercfg->has_verbose_override) servercfg->verbose = CfgGetTrueFalseValue(ptr->data);
 	}
-	if(ptr->data.Find("verbose_level") != -1) {
+	if(cfgkey == "verbose_level") {
 	  if(!servercfg->has_verbose_level_override) servercfg->verbose_level = CfgGetEqualToParm(ptr->data);
 	}
-	if(ptr->data.Find("clear_log") != -1) {
+	if(cfgkey == "clear_log") {
 	  if(!servercfg->has_log_file_clear_override) servercfg->clear_log = CfgGetTrueFalseValue(ptr->data);
 	}
-	if(ptr->data.Find("logfile_name") != -1) {
-	  if(!servercfg->has_log_file_name_override) servercfg->logfile_name = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "logfile_name" || cfgkey == "logfile") {
+	  if(!servercfg->has_log_file_name_override) servercfg->logfile_name = CfgGetEqualToString(ptr->data);
 	}
-	if(ptr->data.Find("enable_logging") != -1) {
+	if(cfgkey == "enable_logging") {
 	  if(!servercfg->has_enable_logging_override) servercfg->enable_logging = CfgGetTrueFalseValue(ptr->data);
 	}
-	if(ptr->data.Find("log_level") != -1) {
+	if(cfgkey == "log_level") {
 	  if(!servercfg->has_log_level_override) servercfg->log_level = CfgGetEqualToParm(ptr->data);
 	}
-	if(ptr->data.Find("service_name") != -1) {
-	  if(!servercfg->is_client) servercfg->service_name = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "service_name") {
+	  if(!servercfg->is_client) servercfg->service_name = CfgGetEqualToString(ptr->data);
 	}
-	if(ptr->data.Find("num_logs_to_keep") != -1) {
+	if(cfgkey == "num_logs_to_keep") {
 	  servercfg->num_logs_to_keep = CfgGetEqualToParm(ptr->data);
 	  if(servercfg->num_logs_to_keep <= 0) {
 	    NT_print("Config file has bad num_logs_to_keep value");
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("max_log_size") != -1) {
-	  gxString lbuf = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "max_log_size") {
+	  gxString lbuf = CfgGetEqualToString(ptr->data);
 	  servercfg->max_log_size = lbuf.Atol();
 	  if(servercfg->max_log_size > 2000000000) {
 	    NT_print("Config max_log_size is over 2GB");
@@ -930,70 +976,70 @@ int LoadOrBuildConfigFile()
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("log_queue_size") != -1) {
+	if(cfgkey == "log_queue_size") {
 	  servercfg->log_queue_size = CfgGetEqualToParm(ptr->data);
 	  if(servercfg->log_queue_size <= 0) {
 	    NT_print("Config file has bad log_queue_size value");
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("log_queue_debug_size") != -1) {
+	if(cfgkey == "log_queue_debug_size") {
 	  servercfg->log_queue_debug_size = CfgGetEqualToParm(ptr->data);
 	  if(servercfg->log_queue_debug_size <= 0) {
 	    NT_print("Config file has bad log_queue_debug_size value");
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("log_queue_proc_size") != -1) {
+	if(cfgkey == "log_queue_proc_size") {
 	  servercfg->log_queue_proc_size = CfgGetEqualToParm(ptr->data);
 	  if(servercfg->log_queue_proc_size <= 0) {
 	    NT_print("Config file has bad log_queue_proc_size value");
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("udpport") != -1) {
+	if(cfgkey == "udpport") {
 	  servercfg->udpport = CfgGetEqualToParm(ptr->data);
 	  if(servercfg->udpport <= 0) {
 	    NT_print("Config file has bad server udpport value");
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("tcpport") != -1) {
+	if(cfgkey == "tcpport") {
 	  servercfg->tcpport = CfgGetEqualToParm(ptr->data);
 	  if(servercfg->tcpport <= 0) {
 	    NT_print("Config file has bad server tcpport value");
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("dead_node_count") != -1) {
+	if(cfgkey == "dead_node_count") {
 	  servercfg->dead_node_count = CfgGetEqualToParm(ptr->data);
 	  if(servercfg->dead_node_count <= 0) {
 	    NT_print("Config file has bad somaxconn value");
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("run_dir") != -1) {
-	  servercfg->run_dir = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "run_dir") {
+	  servercfg->run_dir = CfgGetEqualToString(ptr->data);
 	}
-	if(ptr->data.Find("log_dir") != -1) {
-	  servercfg->log_dir = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "log_dir") {
+	  servercfg->log_dir = CfgGetEqualToString(ptr->data);
 	}
-	if(ptr->data.Find("spool_dir") != -1) {
-	  servercfg->spool_dir = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "spool_dir") {
+	  servercfg->spool_dir = CfgGetEqualToString(ptr->data);
 	}
-	if(ptr->data.Find("cluster_user") != -1) {
-	  servercfg->cluster_user = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "cluster_user") {
+	  servercfg->cluster_user = CfgGetEqualToString(ptr->data);
 	}
-	if(ptr->data.Find("cluster_group") != -1) {
-	  servercfg->cluster_group = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "cluster_group") {
+	  servercfg->cluster_group = CfgGetEqualToString(ptr->data);
 	}
-	if(ptr->data.Find("cluser_mask") != -1) {
-	  servercfg->cluster_umask = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "cluster_umask" || cfgkey == "cluser_mask") {
+	  servercfg->cluster_umask = CfgGetEqualToString(ptr->data);
 	}
-	if(ptr->data.Find("sudo_command") != -1) {
-	  servercfg->sudo_command = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "sudo_command") {
+	  servercfg->sudo_command = CfgGetEqualToString(ptr->data);
 	}
-	if(ptr->data.Find("bind_to_keep_alive_ip") != -1) {
+	if(cfgkey == "bind_to_keep_alive_ip") {
 	  servercfg->bind_to_keep_alive_ip = CfgGetTrueFalseValue(ptr->data);
 	}
 	ptr = ptr->next;
@@ -1109,56 +1155,60 @@ int LoadOrBuildConfigFile()
 	  break;
 	}
 	// Add all node config reads here
-	if(ptr->data.Find("nodename") != -1) {
-	  n->nodename = CfgGetEqualToParm(ptr->data, pbuf);
+	CfgGetKey(ptr->data, cfgkey);
+	if(!cfgkey.is_null() && !CfgIsKnownKey(cfgkey, cfg_node_keys)) {
+	  NT_print("WARNING - Unknown [CM_NODE] config setting:", cfgkey.c_str());
 	}
-	if(ptr->data.Find("hostname") != -1) {
-	  n->hostname = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "nodename") {
+	  n->nodename = CfgGetEqualToString(ptr->data);
 	}
-	if(ptr->data.Find("node_is_active") != -1) {
+	if(cfgkey == "hostname") {
+	  n->hostname = CfgGetEqualToString(ptr->data);
+	}
+	if(cfgkey == "node_is_active") {
 	  n->node_is_active = CfgGetTrueFalseValue(ptr->data);
 	}
-	if(ptr->data.Find("keep_services") != -1) {
+	if(cfgkey == "keep_services") {
 	  n->keep_services = CfgGetTrueFalseValue(ptr->data);
 	}
-	if(ptr->data.Find("keep_filesystems") != -1) {
+	if(cfgkey == "keep_filesystems") {
 	  n->keep_filesystems = CfgGetTrueFalseValue(ptr->data);
 	}
-	if(ptr->data.Find("keep_applications") != -1) {
+	if(cfgkey == "keep_applications") {
 	  n->keep_applications = CfgGetTrueFalseValue(ptr->data);
 	}
-	if(ptr->data.Find("keep_alive_ip") != -1) {
-	  n->keep_alive_ip = CfgGetEqualToParm(ptr->data, pbuf);
+	if(cfgkey == "keep_alive_ip") {
+	  n->keep_alive_ip = CfgGetEqualToString(ptr->data);
 	}
-	if(ptr->data.Find("crontabs_check") != -1) {
+	if(cfgkey == "crontabs_check") {
 	  n->crontabs_check = CfgGetEqualToParm(ptr->data);
 	  if(n->crontabs_check <= 0) {
 	    NT_print("Config file has bad crontabs_check value");
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("services_check") != -1) {
+	if(cfgkey == "services_check") {
 	  n->services_check = CfgGetEqualToParm(ptr->data);
 	  if(n->services_check <= 0) {
 	    NT_print("Config file has bad services_check value");
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("applications_check") != -1) {
+	if(cfgkey == "applications_check") {
 	  n->applications_check = CfgGetEqualToParm(ptr->data);
 	  if(n->applications_check <= 0) {
 	    NT_print("Config file has bad applications_check value");
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("ipaddr_check") != -1) {
+	if(cfgkey == "ipaddrs_check" || cfgkey == "ipaddr_check" || cfgkey == "ipapddrs_check") {
 	  n->ipaddrs_check = CfgGetEqualToParm(ptr->data);
 	  if(n->ipaddrs_check <= 0) {
 	    NT_print("Config file has bad ipaddrs_check value");
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.Find("filesystems_check") != -1) {
+	if(cfgkey == "filesystems_check") {
 	  n->filesystems_check = CfgGetEqualToParm(ptr->data);
 	  if(n->filesystems_check <= 0) {
 	    NT_print("Config file has bad filesystems_check value");
@@ -1166,7 +1216,7 @@ int LoadOrBuildConfigFile()
 	  }
 	}
 
-	if(ptr->data.Find("node_crontabs") != -1) {
+	if(cfgkey == "node_crontabs") {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
 	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
@@ -1190,7 +1240,7 @@ int LoadOrBuildConfigFile()
 	    }
 	  }
 	}
-	if(ptr->data.Find("node_backup_crontabs") != -1) {
+	if(cfgkey == "node_backup_crontabs") {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
 	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
@@ -1216,7 +1266,7 @@ int LoadOrBuildConfigFile()
 	  }
 	}
 
-	if(ptr->data.Find("node_floating_ip_addrs") != -1) {
+	if(cfgkey == "node_floating_ip_addrs") {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
 	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
@@ -1241,7 +1291,7 @@ int LoadOrBuildConfigFile()
 	    }
 	  }
 	}
-	if(ptr->data.Find("node_backup_floating_ip_addrs") != -1) {
+	if(cfgkey == "node_backup_floating_ip_addrs") {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
 	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
@@ -1266,7 +1316,7 @@ int LoadOrBuildConfigFile()
 	  }
 	}
 
-	if(ptr->data.Find("node_services") != -1) {
+	if(cfgkey == "node_services") {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
 	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
@@ -1291,7 +1341,7 @@ int LoadOrBuildConfigFile()
 	    }
 	  }
 	}
-	if(ptr->data.Find("node_backup_services") != -1) {
+	if(cfgkey == "node_backup_services") {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
 	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
@@ -1316,7 +1366,7 @@ int LoadOrBuildConfigFile()
 	  }
 	}
 
-	if(ptr->data.Find("node_applications") != -1) {
+	if(cfgkey == "node_applications") {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
 	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
@@ -1340,7 +1390,7 @@ int LoadOrBuildConfigFile()
 	    }
 	  }
 	}
-	if(ptr->data.Find("node_backup_applications") != -1) {
+	if(cfgkey == "node_backup_applications") {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
 	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
@@ -1365,7 +1415,7 @@ int LoadOrBuildConfigFile()
 	  }
 	}
 
-	if(ptr->data.Find("node_filesystems") != -1) {
+	if(cfgkey == "node_filesystems") {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
 	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
@@ -1389,7 +1439,7 @@ int LoadOrBuildConfigFile()
 	    }
 	  }
 	}
-	if(ptr->data.Find("node_backup_filesystems") != -1) {
+	if(cfgkey == "node_backup_filesystems") {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
 	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
@@ -1434,6 +1484,37 @@ int LoadOrBuildConfigFile()
   if(has_cmnode == 0) {
     NT_print("Config file missing [CMNODE] section(s)", parm.c_str());
     error_level = 1;
+  }
+
+  // Every node needs a name, hostname and keep alive IP, and node
+  // names and hostnames must be unique
+  gxListNode<CMnode *> *nptr = servercfg->nodes.GetHead();
+  while(nptr) {
+    if(nptr->data->nodename.is_null()) {
+      NT_print("ERROR - [CM_NODE] section missing nodename");
+      error_level = 1;
+    }
+    if(nptr->data->hostname.is_null()) {
+      NT_print("ERROR - [CM_NODE] section missing hostname for node", nptr->data->nodename.c_str());
+      error_level = 1;
+    }
+    if(nptr->data->keep_alive_ip.is_null()) {
+      NT_print("ERROR - [CM_NODE] section missing keep_alive_ip for node", nptr->data->nodename.c_str());
+      error_level = 1;
+    }
+    gxListNode<CMnode *> *dptr = nptr->next;
+    while(dptr) {
+      if(!nptr->data->nodename.is_null() && dptr->data->nodename == nptr->data->nodename) {
+	NT_print("ERROR - Duplicate nodename in config file", nptr->data->nodename.c_str());
+	error_level = 1;
+      }
+      if(!nptr->data->hostname.is_null() && dptr->data->hostname == nptr->data->hostname) {
+	NT_print("ERROR - Duplicate hostname in config file", nptr->data->hostname.c_str());
+	error_level = 1;
+      }
+      dptr = dptr->next;
+    }
+    nptr = nptr->next;
   }
   
   // Set CM logfile name
@@ -1700,17 +1781,25 @@ int NT_check_dir(const gxString &dir)
   gxString superuser = "root";
   if(servercfg->cluster_user == superuser) futils_mkdir(dir.c_str());
   if(servercfg->cluster_user != superuser) {
-    command << clear << servercfg->sudo_command << " \'/bin/mkdir -p " << dir.c_str() << " &> /dev/null\'";
+    gxString mkdir_command;
+    mkdir_command << clear << "/bin/mkdir -p " << ShellQuote(dir) << " > /dev/null 2>&1";
+    command << clear << servercfg->sudo_command << " " << ShellQuote(mkdir_command);
     if(servercfg->log_level >= 4 || servercfg->debug) {
       NT_print("SUDO command:", command.c_str()); 
     }
-    system(command.c_str());
-    command << clear << servercfg->sudo_command << " \'chown " 
-	    << servercfg->cluster_user << ":" << servercfg->cluster_group << " " << dir.c_str() << " &> /dev/null\'";
+    if(system(command.c_str()) != 0) {
+      NT_print("WARNING - SUDO command failed:", command.c_str());
+    }
+    gxString owner, chown_command;
+    owner << clear << servercfg->cluster_user << ":" << servercfg->cluster_group;
+    chown_command << clear << "chown " << ShellQuote(owner) << " " << ShellQuote(dir) << " > /dev/null 2>&1";
+    command << clear << servercfg->sudo_command << " " << ShellQuote(chown_command);
     if(servercfg->log_level >= 4 || servercfg->debug) {
       NT_print("SUDO command:", command.c_str()); 
     }
-    system(command.c_str());
+    if(system(command.c_str()) != 0) {
+      NT_print("WARNING - SUDO command failed:", command.c_str());
+    }
   }
   if(!futils_exists(dir.c_str())) return 0;
 

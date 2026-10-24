@@ -59,11 +59,18 @@ private:
 // Signal I/O process functions
 void signal_handler_IO(int status);
 void termination_handler(int signum);
+void handle_process_signal(int signum);
+
+// Block process signals and start the thread that handles them.
+// Call from main() before any other thread is created.
+int StartSignalThread();
 
 // Main process functions
 int StopThreads();
 int StopProc();
 void ExitProc(int return_code);
+// Quote a string for use as a single shell word
+gxString ShellQuote(const gxString &s);
 int RunSystemCommand(const gxString &input_command);
 int RunSystemCommand(const gxString &input_command, const gxString &user, const gxString &group);
 

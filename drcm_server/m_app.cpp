@@ -36,6 +36,9 @@ Application classes and functions for Datareel cluster manager.
 #include "drcm_server.h"
 #include "m_app.h"
 
+#include <ctype.h>
+#include <sys/stat.h>
+
 void PrintGlobalConfig()
 {
   gxString sbuf;
@@ -831,6 +834,23 @@ int load_hash_key()
   akfile.df_Close();
   shafile.df_Close();
 
+  for(int i = 0; i < 40; i++) {
+    if(!isxdigit((unsigned char)servercfg->sha1sum[i])) {
+      NT_print("ERROR - Auth hash is not a 40 character SHA1 hex string", servercfg->sha1_file.c_str());
+      return 1;
+    }
+  }
+
+  // The auth files are the cluster's shared secret, so only the owner
+  // should be able to read them
+  const char *auth_files[2] = { servercfg->auth_key_file.c_str(), servercfg->sha1_file.c_str() };
+  for(int i = 0; i < 2; i++) {
+    struct stat st;
+    if(stat(auth_files[i], &st) == 0 && (st.st_mode & (S_IRWXG | S_IRWXO))) {
+      NT_print("WARNING - Auth file can be read by other users, run: chmod 600", auth_files[i]);
+    }
+  }
+
   return 0;
 }
 
@@ -1084,6 +1104,10 @@ int ping_node(CMnode *node)
     cout << "ping " << suffix.c_str() << " failed with recv error" << "\n" << flush;      
     return 1;
   }
+  if(!cm_reply_is_valid(cmhdr)) {
+    cout << "ping " << suffix.c_str() << " failed with bad reply" << "\n" << flush;      
+    return 1;
+  }
   cout << "ping " << suffix.c_str() << " successful" << "\n" << flush;      
   return 0;
 }
@@ -1132,7 +1156,7 @@ int get_rstats(CMnode *node)
   }
 
   int sizebuf = cmhdr.get_word(cmhdr.datagram_size);
-  if(sizebuf <= 0) {
+  if(!cm_reply_is_valid(cmhdr) || sizebuf <= 0 || sizebuf > CM_MAX_STATS_SIZE) {
     cout << "rstats ack " << suffix.c_str() << " failed with bad datagram size" << "\n" << flush;      
     return 1;
   }
@@ -1142,14 +1166,14 @@ int get_rstats(CMnode *node)
   bytes_read = client.RemoteRecvFrom(datagram, sizebuf, 15, 0);
   if(bytes_read != sizebuf) {
     cout << "rstats " << suffix.c_str() << " failed with recv error" << "\n" << flush;      
-    delete datagram;
+    delete[] datagram;
     return 1;
   }
 
   cout << "rstats " << suffix.c_str() << " successful" << "\n" << flush;      
   cout << datagram << flush;
   cout << "rstats " << suffix.c_str() << " end" << "\n" << flush;      
-  delete datagram;
+  delete[] datagram;
 
   return 0;
 }
@@ -1207,7 +1231,7 @@ int cm_stat()
 	cmhdr.clear();
 	if(client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), 5, 0) == sizeof(cmhdr)) {
 	  int sizebuf = cmhdr.get_word(cmhdr.datagram_size);
-	  if(sizebuf > 0) {
+	  if(cm_reply_is_valid(cmhdr) && sizebuf > 0 && sizebuf <= CM_MAX_STATS_SIZE) {
 	    char *datagram = new char[sizebuf+1];
 	    memset(datagram, 0, (sizebuf+1));
 	    if(client.RemoteRecvFrom(datagram, sizebuf, 15, 0) == sizebuf) {
@@ -1314,7 +1338,7 @@ int cm_stat()
 		}
 	      }
 	    }
-	    delete datagram;
+	    delete[] datagram;
 	  }
 	}
       }
@@ -1636,7 +1660,7 @@ int get_node_stat_buffer(CMnode *node, gxString &buffer, gxString &error_message
   }
 
   int sizebuf = cmhdr.get_word(cmhdr.datagram_size);
-  if(sizebuf <= 0) {
+  if(!cm_reply_is_valid(cmhdr) || sizebuf <= 0 || sizebuf > CM_MAX_STATS_SIZE) {
     error_message << clear << "ERROR - Receive bad CM header message from " <<  node->keep_alive_ip;
     return 1;
   }
@@ -1646,13 +1670,13 @@ int get_node_stat_buffer(CMnode *node, gxString &buffer, gxString &error_message
   bytes_read = client.RemoteRecvFrom(datagram, sizebuf, 5, 0);
   if(bytes_read != sizebuf) {
     error_message << clear << "ERROR - Receive bad rstats buffer from " <<  node->keep_alive_ip;
-    delete datagram;
+    delete[] datagram;
     return 1;
   }
 
 
   buffer << clear << datagram;
-  delete datagram;
+  delete[] datagram;
 
   return 0;
 }

@@ -95,7 +95,7 @@ case "${4}" in
 		nmcli device reapply ${ETHINT}
 		error_level=$?
 		if [ $error_level -ne 0 ]; then 
-		    echo "ERROR - Command failed: nmcli device reapply enp1s0"
+		    echo "ERROR - Command failed: nmcli device reapply ${ETHINT}"
 		fi
 	    fi
 	else 
@@ -116,7 +116,7 @@ case "${4}" in
 		nmcli device reapply ${ETHINT}
 		error_level=$?
 		if [ $error_level -ne 0 ]; then 
-		    echo "ERROR - Command failed: nmcli device reapply enp1s0"
+		    echo "ERROR - Command failed: nmcli device reapply ${ETHINT}"
 		fi
 	    fi
 	else 

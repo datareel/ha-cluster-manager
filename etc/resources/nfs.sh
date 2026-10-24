@@ -87,7 +87,7 @@ function Mount() {
 	if [ ! -d ${target} ]; then
 	    # Target DIR does not exist ${target}
 	    mkdir -vp ${target}
-	    chmod 777 ${target}
+	    chmod 755 ${target}
 	fi
 	cat /dev/null > ${target}/not_mounted
 	mount ${source} ${target}
@@ -148,15 +148,13 @@ function Watch()
     fi
 
     # Checking for stale NFS mounts
-    ls -l --color=none ${target} &> /tmp/ls.$$
-    grep -i "stale" /tmp/ls.$$ | grep -i "handle" &> /dev/null
+    ls -l --color=none ${target} 2>&1 | grep -i "stale" | grep -i "handle" &> /dev/null
     if [ $? -eq 0 ]
     then 
 	echo "FAIL - ${source} ${target} is stale"
 	echo "Will attempt a remount"
 	mount -o remount ${target}
-	ls -l ${target} &> /tmp/ls.$$
-	grep -i "stale" /tmp/ls.$$ | grep -i "handle" &> /dev/null
+	ls -l --color=none ${target} 2>&1 | grep -i "stale" | grep -i "handle" &> /dev/null
 	if [ $? -eq 0 ]
 	then
 	    echo "ERROR - ${source} ${target} is stale after remount"
@@ -170,7 +168,6 @@ function Watch()
 	    fi
 	fi
     fi
-    rm -f /tmp/ls.$$
 }
 
 is_mounted=0;

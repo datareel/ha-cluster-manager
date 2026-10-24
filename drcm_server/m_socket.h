@@ -98,6 +98,12 @@ struct CMClientSocket_t
 int send_keep_alive(CMnode *n, int &error_level, int timeout_secs = 1, int timeout_usecs = 0);
 
 
+// Returns 1 if a reply header has our checkword, auth hash and an ACK
+int cm_reply_is_valid(CM_MessageHeader &cmhdr);
+
+// Largest stats buffer a node will accept in one UDP datagram
+const int CM_MAX_STATS_SIZE = 65507;
+
 // Get string value for errno. Returns the error_number provided by caller
 int fd_error_to_string(int error_number, gxString &sbuf);
 

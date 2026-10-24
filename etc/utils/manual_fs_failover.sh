@@ -33,7 +33,7 @@ USERNAME=$(whoami)
 
 if [ "${USERNAME}" != "${BACKUP_USER}" ]
     then
-    echo "You must be ${USERNAME} to run this script"
+    echo "You must be ${BACKUP_USER} to run this script"
     exit 1
 fi
 

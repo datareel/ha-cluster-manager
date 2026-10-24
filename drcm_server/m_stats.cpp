@@ -41,18 +41,6 @@ int CMstats::Add(gxString &s, int check_existing)
 {
   stats_lock.MutexLock();
 
-  int num_try = 0;
-  while(stats_is_locked != 0) {
-    if(++num_try < stats_retries) {
-      stats_cond.ConditionWait(&stats_lock);
-    }
-    else {
-      return 0;
-    }
-  }
-  
-  stats_is_locked = 1; 
-  
   // ********** Enter Critical Section ******************* //
   int has_stat = 0;
   int was_added = 0;
@@ -77,9 +65,6 @@ int CMstats::Add(gxString &s, int check_existing)
     stats.Add(sbuf);
   }
   // ********** Leave Critical Section ******************* //
-  
-  stats_is_locked = 0; 
-  stats_cond.ConditionSignal();
   stats_lock.MutexUnlock();
 
   return was_added;
@@ -87,44 +72,17 @@ int CMstats::Add(gxString &s, int check_existing)
 
 void CMstats::Clear() {
   stats_lock.MutexLock();
-    
-  int num_try = 0;
-  while(stats_is_locked != 0) {
-    if(++num_try < stats_retries) {
-      stats_cond.ConditionWait(&stats_lock);
-    }
-    else {
-      return;
-    }
-  }
-  
-  stats_is_locked = 1; 
-  
+
   // ********** Enter Critical Section ******************* //
   stats.ClearList();
   // ********** Leave Critical Section ******************* //
-  
-  stats_is_locked = 0; 
-  stats_cond.ConditionSignal();
   stats_lock.MutexUnlock();
 }
 
 int CMstats::Remove(const gxString &s) 
 {
   stats_lock.MutexLock();
-    
-  int num_try = 0;
-  while(stats_is_locked != 0) {
-    if(++num_try < stats_retries) {
-      stats_cond.ConditionWait(&stats_lock);
-    }
-    else {
-      return 0;
-    }
-  }
-  
-  stats_is_locked = 1; 
-  
+
   // ********** Enter Critical Section ******************* //
   gxListNode<gxString> *ptr = stats.GetHead();
   int has_stat = 0;
@@ -140,9 +98,6 @@ int CMstats::Remove(const gxString &s)
     ptr = ptr->next;
   }
   // ********** Leave Critical Section ******************* //
-  
-  stats_is_locked = 0; 
-  stats_cond.ConditionSignal();
   stats_lock.MutexUnlock();
 
   return has_stat;
@@ -166,19 +121,7 @@ void CMstats::Get(gxString &sbuf)
 void CMstats::Get(gxList<gxString> &s) 
 {
   stats_lock.MutexLock();
-    
-  int num_try = 0;
-  while(stats_is_locked != 0) {
-    if(++num_try < stats_retries) {
-      stats_cond.ConditionWait(&stats_lock);
-    }
-    else {
-      return;
-    }
-  }
-  
-  stats_is_locked = 1; 
-  
+
   // ********** Enter Critical Section ******************* //
   s.ClearList();
   gxListNode<gxString> *ptr = stats.GetHead();
@@ -187,10 +130,15 @@ void CMstats::Get(gxList<gxString> &s)
     ptr = ptr->next;
   }
   // ********** Leave Critical Section ******************* //
-  
-  stats_is_locked = 0; 
-  stats_cond.ConditionSignal();
   stats_lock.MutexUnlock();
+}
+int stats_buffer_has(const gxString &buffer, const gxString &stat)
+{
+  // Each stats line is "name,timestamp"
+  gxString lines, entry;
+  lines << clear << "\n" << buffer;
+  entry << clear << "\n" << stat << ",";
+  return lines.Find(entry) != -1;
 }
 // ----------------------------------------------------------- // 
 // ------------------------------- //

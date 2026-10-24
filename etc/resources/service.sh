@@ -141,7 +141,7 @@ case "${2}" in
         ;;
     reload)
 	echo "Reloading ${servicename}"
-	Restart
+	Reload
 	if [ $error_level -ne 0 ]; then echo "ERROR - Could not reload ${servicename}"; fi
         ;;
     watch)

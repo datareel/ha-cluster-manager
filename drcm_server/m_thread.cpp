@@ -147,7 +147,9 @@ void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
       if(recv_err_count > 100) {
 	message << clear << "[" << seq_num << "]: ERROR - Received invalid UDP message header, error count over 100";
 	LogMessage(message.c_str());
+	recv_err_count = 0;
       }
+      if(rv < 0) sSleep(1); // Do not spin on a socket error
       continue;
     }
     recv_err_count = 0;
@@ -304,17 +306,16 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
     }
 
     int error_count = 0;
-    int num_nodes = 0;
     gxList<CMnode *> failed_nodes;
     gxList<CMnode *> prev_failed_nodes;
     int in_active_node_count = 0;
     int num_active_nodes = 0;
+    int num_remote_active_nodes = 0;
 
     gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
     while(ptr) {
       if(servercfg->restart_server) break;
       if(servercfg->kill_server) break;
-      num_nodes++;
 
       // Skip the keep alive check on this node
       if(servercfg->my_hostname == ptr->data->hostname) {
@@ -346,10 +347,15 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
 	}
 	in_active_node_count++;
 	if(in_active_node_count >= num_inactive_node_count) in_active_node_count = 0;
-	if(!ptr->next) break;
+	// Do not send keep alives to an inactive node. If an inactive node
+	// answered it would be put back in service and its resources would
+	// fail back to it.
+	ptr = ptr->next;
+	continue;
       }
       else { 
 	num_active_nodes++;
+	num_remote_active_nodes++;
       }
       if(servercfg->debug && servercfg->debug_level >= 5) {
 	if(message_count == 0) {
@@ -401,7 +407,7 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
       ptr = ptr->next;
     }
 
-    if(error_count == num_nodes) {
+    if(num_remote_active_nodes > 0 && error_count == num_remote_active_nodes) {
       if(message_count == 0) {
 	LogMessage("ERROR - All active CM nodes failed pre connection test");
       }
@@ -414,10 +420,10 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
     }
 
     int max_errors = servercfg->dead_node_count;
-    error_count = 0;
     ptr = failed_nodes.GetHead();
     int failed_message_count = 0;
     while(ptr) {
+      error_count = 0; // Each failed node gets the full dead_node_count
       if(servercfg->debug && servercfg->debug_level >= 5) {
 	message << clear << "Checking failed node " << ptr->data->nodename;
 	LogDebugMessage(message.c_str());
@@ -513,6 +519,7 @@ void *CM_CrontabsThread::ThreadEntryRoutine(gxThread_t *thread)
 {
   gxString command;
 
+  set_this_node(); // Load this node so the check interval below is from the config
   sSleep(node.crontabs_check); // Time for process start up
   command << clear << "date > " << servercfg->log_dir << "/crontab_resource.log";
   RunSystemCommand(command);
@@ -639,7 +646,7 @@ int CM_CrontabsThread::install_crontabs()
 		}
 		if(get_node_stat_buffer(takeoverptr->data, rstats_buffer, rstats_error_message) == 0) {
 		  stat_message << clear << "backup_cron:" << cptr->data.nickname;
-		  if(rstats_buffer.Find(stat_message) != -1) {
+		  if(stats_buffer_has(rstats_buffer, stat_message)) {
 		    is_installed = 1;
 		    message << clear << takeoverptr->data->nodename  << " has " 
 			    << cptr->data.nickname << " failover crontab installed";
@@ -782,6 +789,7 @@ void *CM_IPaddrsThread::ThreadEntryRoutine(gxThread_t *thread)
 {
   gxString command;
 
+  set_this_node(); // Load this node so the check interval below is from the config
   sSleep(node.ipaddrs_check); // Time for process start up
   command << clear << "date > " << servercfg->log_dir << "/ipv4addr_resource.log";
   RunSystemCommand(command);
@@ -942,7 +950,7 @@ int CM_IPaddrsThread::install_floating_ipaddrs()
 		}
 		if(get_node_stat_buffer(takeoverptr->data, rstats_buffer, rstats_error_message) == 0) {
 		  stat_message << clear << "backup_ip:" << iptr->data.nickname;
-		  if(rstats_buffer.Find(stat_message) != -1) {
+		  if(stats_buffer_has(rstats_buffer, stat_message)) {
 		    is_installed = 1;
 		    message << clear << takeoverptr->data->nodename  << " has " 
 			    << iptr->data.nickname << " failover ipaddr installed";
@@ -1068,6 +1076,7 @@ void *CM_servicesThread::ThreadEntryRoutine(gxThread_t *thread)
 {
   gxString command;
 
+  set_this_node(); // Load this node so the check interval below is from the config
   sSleep(node.services_check); // Time for process start up
 
   command << clear << "date > " << servercfg->log_dir << "/service_resource.log";
@@ -1115,13 +1124,18 @@ int CM_servicesThread::stop_backup_services()
   gxString command;
   gxString message;
   gxListNode<gxString> *installed_ptr;
+  gxString installed_nickname;
+  gxString stat_message;
   int rv;
 
   installed_ptr = installed_backup_services.GetHead();
   while(installed_ptr) {
     sptr = servercfg->node_services.GetHead();
     while(sptr) {
-      if(installed_ptr->data == sptr->data.nickname) {
+      // Backup entries are stored as nodename:nickname
+      installed_nickname = installed_ptr->data;
+      installed_nickname.DeleteBeforeLastIncluding(":");
+      if(installed_nickname == sptr->data.nickname) {
 	message << clear << "Stopping failover service " << sptr->data.service_name;
 	LogMessage(message.c_str());
 	command << clear << sptr->data.resource_script << " " << sptr->data.service_name << " stop >> " 
@@ -1136,6 +1150,8 @@ int CM_servicesThread::stop_backup_services()
 	else {
 	  installed_backup_services.Remove(installed_ptr);
 	  installed_ptr = 0; // Signal to start at top of installed backup list
+	  stat_message << clear << "backup_service:" << installed_nickname;
+	  servercfg->stats.Remove(stat_message);
 	  break;
 	}
       }
@@ -1282,7 +1298,7 @@ int CM_servicesThread::install_services()
 		}
 		if(get_node_stat_buffer(takeoverptr->data, rstats_buffer, rstats_error_message) == 0) {
 		  stat_message << clear << "backup_service:" << sptr->data.nickname;
-		  if(rstats_buffer.Find(stat_message) != -1) {
+		  if(stats_buffer_has(rstats_buffer, stat_message)) {
 		    is_started = 1;
 		    message << clear << takeoverptr->data->nodename  << " has " 
 			    << sptr->data.nickname << " failover service installed";
@@ -1415,6 +1431,7 @@ void *CM_applicationsThread::ThreadEntryRoutine(gxThread_t *thread)
 {
   gxString command;
 
+  set_this_node(); // Load this node so the check interval below is from the config
   sSleep(node.applications_check); // Time for process start up
 
   command << clear << "date > " << servercfg->log_dir << "/application_resource.log";
@@ -1496,13 +1513,18 @@ int CM_applicationsThread::stop_backup_applications()
   gxString command;
   gxString message;
   gxListNode<gxString> *installed_ptr;
+  gxString installed_nickname;
+  gxString stat_message;
   int rv;
 
   installed_ptr = installed_backup_applications.GetHead();
   while(installed_ptr) {
     aptr = servercfg->node_applications.GetHead();
     while(aptr) {
-      if(installed_ptr->data == aptr->data.nickname) {
+      // Backup entries are stored as nodename:nickname
+      installed_nickname = installed_ptr->data;
+      installed_nickname.DeleteBeforeLastIncluding(":");
+      if(installed_nickname == aptr->data.nickname) {
 	message << clear << "Stopping failover application " << aptr->data.nickname;
 	LogMessage(message.c_str());
 	if(servercfg->debug && servercfg->debug_level >= 10) {
@@ -1521,6 +1543,8 @@ int CM_applicationsThread::stop_backup_applications()
 	else {
 	  installed_backup_applications.Remove(installed_ptr);
 	  installed_ptr = 0; // Signal to start at top of installed backup list
+	  stat_message << clear << "backup_application:" << installed_nickname;
+	  servercfg->stats.Remove(stat_message);
 	  break;
 	}
       }
@@ -1647,7 +1671,7 @@ int CM_applicationsThread::install_applications()
 		}
 		if(get_node_stat_buffer(takeoverptr->data, rstats_buffer, rstats_error_message) == 0) {
 		  stat_message << clear << "backup_application:" << aptr->data.nickname;
-		  if(rstats_buffer.Find(stat_message) != -1) {
+		  if(stats_buffer_has(rstats_buffer, stat_message)) {
 		    is_started = 1;
 		    message << clear << takeoverptr->data->nodename  << " has " 
 			    << aptr->data.nickname << " failover application installed";
@@ -1796,7 +1820,8 @@ void *CM_filesystemsThread::ThreadEntryRoutine(gxThread_t *thread)
 {
   gxString command;
 
-  sSleep(node.applications_check); // Time for process start up
+  set_this_node(); // Load this node so the check interval below is from the config
+  sSleep(node.filesystems_check); // Time for process start up
   command << clear << "date > " << servercfg->log_dir << "/filesystem_resource.log";
   RunSystemCommand(command);
 
@@ -1934,7 +1959,7 @@ int CM_filesystemsThread::mount_filesystems()
 		}
 		if(get_node_stat_buffer(takeoverptr->data, rstats_buffer, rstats_error_message) == 0) {
 		  stat_message << clear << "backup_filesystem:" << fptr->data.nickname;
-		  if(rstats_buffer.Find(stat_message) != -1) {
+		  if(stats_buffer_has(rstats_buffer, stat_message)) {
 		    is_mounted = 1;
 		    message << clear << takeoverptr->data->nodename  << " has " 
 			    << fptr->data.nickname << " failover file system mounted";
@@ -2074,13 +2099,18 @@ int CM_filesystemsThread::unmount_backup_filesystems()
   gxString command;
   gxString message;
   gxListNode<gxString> *installed_ptr;
+  gxString installed_nickname;
+  gxString stat_message;
   int rv;
 
   installed_ptr = installed_backup_filesystems.GetHead();
   while(installed_ptr) {
     fptr = servercfg->node_filesystems.GetHead();
     while(fptr) {
-      if(installed_ptr->data == fptr->data.nickname) {
+      // Backup entries are stored as nodename:nickname
+      installed_nickname = installed_ptr->data;
+      installed_nickname.DeleteBeforeLastIncluding(":");
+      if(installed_nickname == fptr->data.nickname) {
 	message << clear << "Unmounting failover file system " << fptr->data.nickname;
 	LogMessage(message.c_str());
 	command << clear << fptr->data.resource_script << " " << fptr->data.source << " " << fptr->data.target 
@@ -2095,6 +2125,8 @@ int CM_filesystemsThread::unmount_backup_filesystems()
 	else {
 	  installed_backup_filesystems.Remove(installed_ptr);
 	  installed_ptr = 0; // Signal to start at top of installed backup list
+	  stat_message << clear << "backup_filesystem:" << installed_nickname;
+	  servercfg->stats.Remove(stat_message);
 	  break;
 	}
       }

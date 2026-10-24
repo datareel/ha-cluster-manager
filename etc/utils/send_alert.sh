@@ -112,7 +112,7 @@ function send_alert() {
     if [ ! -f ${TIMEFILE} ]
     then
 	date +%s > ${TIMEFILE}
-	chmod 666 ${TIMEFILE}
+	chmod 644 ${TIMEFILE}
     fi
     
     LASTTIME=$(cat ${TIMEFILE})
@@ -192,10 +192,10 @@ function send_alert() {
 	SENDALERT="FALSE"
     else
 	date +%s > ${INITFILE}
-	chmod 666 ${INITFILE}
+	chmod 644 ${INITFILE}
 	echo "Sending alert email..."
 	date +%s > ${TIMEFILE}
-	chmod 666 ${TIMEFILE}
+	chmod 644 ${TIMEFILE}
 	SENDALERT="TRUE"
     fi
 
