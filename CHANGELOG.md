@@ -141,6 +141,10 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   DataReel source tree, so the bundled copy can be refreshed from the
   upstream repository.
 - `CHANGELOG.md` (this file).
+- `rpm_builder/drcm_rhel10.spec` and `rpm_builder/make_rhel10_rpm.sh`
+  for building RHEL 10 RPMs. Like RHEL 7–9, the RHEL 10 package
+  installs the native systemd unit to `/usr/lib/systemd/system` and
+  ships no SysV init script. `make_rpm_package.sh` accepts `rhel10`.
 
 ### Changed
 - `build/makefile`, `env/glibobjs.mak` and `env/glibdeps.mak` now list
