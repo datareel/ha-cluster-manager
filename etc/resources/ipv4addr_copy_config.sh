@@ -1,7 +1,13 @@
 #!/bin/bash
 # DR cluster resource script for adding or removing IPv4 addresses
+#
+# DEPRECATED on RHEL 8 and later. This script drives the floating IP
+# through /etc/sysconfig/network-scripts (ifcfg files) and
+# "service network restart", which the deprecated network-scripts
+# package provides. On RHEL 8+ use the NetworkManager based resource
+# scripts instead (ipv4addr_nmcli.sh or ipv4addr_copy_nmcli.sh).
 
-. ~/.bashrc
+if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
 
 # All IPv4 resouce scripts must use the following args:
 #

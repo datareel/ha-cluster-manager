@@ -1,7 +1,7 @@
 #!/usr/bin/bash
 # DR cluster resource script for adding or removing IPv4 addresses
 
-. ~/.bashrc
+if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
 
 # All IPv4 resouce scripts must use the following args:
 #

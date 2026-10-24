@@ -4,21 +4,21 @@
 export BUILD="gnu"
 export COMPILER="gnu"
 
-echo "Using GCC, G++, and GFORTRAN compilers for all binary builds"
+echo "Using GCC and G++ compilers for all binary builds"
 
 export CC="gcc"
 export CXX="g++"
 export CPP="${CC} -E"
-export F90="gfortran"
-export F77="gfortran"
-export FC="gfortran"
-export CFLAGS="-O2 -Wall -v"
-export CXXFLAGS="-O2 -Wall -v"
-export FFLAGS="-O2 -Wall -v"
-export FCFLAGS="-O2 -Wall -v"
-export FFLAGS90="-O2 -Wall -v"
-export NUMCPUS=$(cat /proc/cpuinfo | grep processor | wc -l | tr -d " ")
-export OMP_NUM_THREADS=${NUMCPUS}
-export OMP_PROC_BIND="true"
-export FORT_BUFFERED="true"
-export KMP_AFFINITY="granularity=fine,compact,1,0,verbose"
+
+# Build with optimization, warnings, and runtime hardening. The
+# hardening flags (stack protector, fortified libc calls, read-only
+# relocations and a position independent executable) add exploit
+# mitigation at little cost and are the modern distro defaults.
+HARDEN_CFLAGS="-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE"
+HARDEN_LDFLAGS="-Wl,-z,relro,-z,now -pie"
+
+export CFLAGS="-O2 -Wall ${HARDEN_CFLAGS}"
+export CXXFLAGS="-O2 -Wall ${HARDEN_CFLAGS}"
+export LDFLAGS="${HARDEN_LDFLAGS}"
+
+export NUMCPUS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc)

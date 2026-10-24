@@ -14,7 +14,7 @@ Requires: libm.so.6()(64bit)
 Requires: libgcc_s.so.1()(64bit)
 Requires: libc.so.6()(64bit)
 Requires: ld-linux-x86-64.so.2()(64bit)
-Requires: systemd-units  
+Requires: systemd
 Requires: /bin/sh  
 Requires: /bin/bash
 
@@ -83,7 +83,6 @@ tar xvf drcm_server.tar.gz -C $RPM_BUILD_ROOT
 %dir %attr(0755, root, root) "/var/spool/drcm"
 %dir %attr(0755, root, root) "/var/run/drcm"
 %attr(0755, root, root) "/usr/sbin/drcm_server"
-%config %attr(0755, root, root) "/etc/rc.d/init.d/drcm_server" 
 %config %attr(0755, root, root) "/etc/sysconfig/drcm_server"
 %docdir %attr(0755, root, root) "/usr/share/doc/drcm"
 %doc %attr(0644, root, root) "/usr/share/doc/drcm/README.txt"
@@ -91,7 +90,7 @@ tar xvf drcm_server.tar.gz -C $RPM_BUILD_ROOT
 %doc %attr(0644, root, root) "/usr/share/doc/drcm/version.txt"
 %doc %attr(0644, root, root) "/usr/share/man/man1/drcm_server.1.gz"
 %doc %attr(0644, root, root) "/usr/share/man/man8/drcm_server.8.gz"
-%config %attr(0644, root, root) "/etc/systemd/system/drcm_server.service" 
+%attr(0644, root, root) "/usr/lib/systemd/system/drcm_server.service" 
 
 %post -p /bin/sh
 
@@ -117,6 +116,10 @@ if [ $1 -ge 1 ] ; then
 fi
 
 %changelog
+* Fri Oct 24 2026 Datareel <datareel.com>
+- Native systemd unit (Type=simple) installed to /usr/lib/systemd/system;
+  dropped the SysV init wrapper; hardened build flags; modernized scripts
+
 * Mon Feb 05 2024 Datareel <datareel.com>
 - Added NMCLI resource scripts
 
