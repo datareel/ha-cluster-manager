@@ -35,6 +35,8 @@ Program config functions for Datareel cluster manager.
 #include "gxdlcode.h"
 
 #include <regex.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include "drcm_server.h"
 #include "m_config.h"
@@ -105,6 +107,9 @@ void CMnode::Copy(const CMnode &n) {
   keep_services = n.keep_services;
   keep_filesystems = n.keep_filesystems;
   keep_applications = n.keep_applications;
+  copy_list(n.peer_endpoints, peer_endpoints);
+  tls_peer_fingerprint = n.tls_peer_fingerprint;
+  floating_ip_provider = n.floating_ip_provider;
 }
 
 void CMnode::copy_list(const gxList<gxString> &source, gxList<gxString> &dest) 
@@ -161,7 +166,16 @@ CMconfig::CMconfig()
   client_name = "drcm_client";  // Default client serivce name
   ProgramName = "drcm_server";  // Default program name
   user_config_file = 0;
-  udpport = tcpport = DEFAULT_PORT;
+  udpport = DEFAULT_PORT;
+  tcpport = DEFAULT_TCP_PORT;
+
+  // Transport defaults: UDP (LAN) unless the config selects TCP. TLS
+  // floor is 1.2, anti-replay is sequence-only (no clock sync needed).
+  cluster_transport = CM_TRANSPORT_UDP;
+  tls_min_version = 2;
+  replay_window_secs = 0;
+  quorum_required = 0;
+
   accept_clients = 1;
   echo_loop = 1;
   kill_server = 0;
@@ -645,6 +659,10 @@ const char *cfg_server_keys[] = {
   "log_dir", "spool_dir", "cluster_user", "cluster_group", "cluster_umask",
   "cluser_mask", "sudo_command", "bind_to_keep_alive_ip",
   "bash_shell", "bash_rc_file", // Used by the resource scripts
+  // TCP/TLS mode (Phase 4)
+  "cluster_transport", "tls_ca_file", "tls_cert_file", "tls_key_file",
+  "tls_min_version", "replay_window_secs", "witness_endpoint",
+  "quorum_required",
   0
 };
 
@@ -656,6 +674,8 @@ const char *cfg_node_keys[] = {
   "node_floating_ip_addrs", "node_backup_floating_ip_addrs", "node_services",
   "node_backup_services", "node_applications", "node_backup_applications",
   "node_filesystems", "node_backup_filesystems",
+  // TCP/cloud mode (Phase 4)
+  "peer_endpoints", "tls_peer_fingerprint", "floating_ip_provider",
   0
 };
 
@@ -1041,6 +1061,51 @@ int LoadOrBuildConfigFile()
 	}
 	if(cfgkey == "bind_to_keep_alive_ip") {
 	  servercfg->bind_to_keep_alive_ip = CfgGetTrueFalseValue(ptr->data);
+	}
+	if(cfgkey == "cluster_transport") {
+	  gxString tbuf = CfgGetEqualToString(ptr->data);
+	  tbuf.ToLower();
+	  if(tbuf == "udp") {
+	    servercfg->cluster_transport = CM_TRANSPORT_UDP;
+	  }
+	  else if(tbuf == "tcp") {
+	    servercfg->cluster_transport = CM_TRANSPORT_TCP;
+	  }
+	  else {
+	    NT_print("Config file has bad cluster_transport value (use udp or tcp)");
+	    error_level = 1;
+	  }
+	}
+	if(cfgkey == "tls_ca_file") {
+	  servercfg->tls_ca_file = CfgGetEqualToString(ptr->data);
+	}
+	if(cfgkey == "tls_cert_file") {
+	  servercfg->tls_cert_file = CfgGetEqualToString(ptr->data);
+	}
+	if(cfgkey == "tls_key_file") {
+	  servercfg->tls_key_file = CfgGetEqualToString(ptr->data);
+	}
+	if(cfgkey == "tls_min_version") {
+	  gxString vbuf = CfgGetEqualToString(ptr->data);
+	  if(vbuf == "1.2" || vbuf == "12") servercfg->tls_min_version = 2;
+	  else if(vbuf == "1.3" || vbuf == "13") servercfg->tls_min_version = 3;
+	  else {
+	    NT_print("Config file has bad tls_min_version value (use 1.2 or 1.3)");
+	    error_level = 1;
+	  }
+	}
+	if(cfgkey == "replay_window_secs") {
+	  servercfg->replay_window_secs = CfgGetEqualToParm(ptr->data);
+	  if(servercfg->replay_window_secs < 0) {
+	    NT_print("Config file has bad replay_window_secs value");
+	    error_level = 1;
+	  }
+	}
+	if(cfgkey == "witness_endpoint") {
+	  servercfg->witness_endpoint = CfgGetEqualToString(ptr->data);
+	}
+	if(cfgkey == "quorum_required") {
+	  servercfg->quorum_required = CfgGetTrueFalseValue(ptr->data);
 	}
 	ptr = ptr->next;
       }
@@ -1459,9 +1524,37 @@ int LoadOrBuildConfigFile()
 	    }
 	    if(vals) {
 	      delete[] vals;
-	      vals = 0; 
+	      vals = 0;
 	    }
 	  }
+	}
+	if(cfgkey == "peer_endpoints") {
+	  // One or more host:port heartbeat paths for this peer (TCP mode)
+	  line_dup = ptr->data;
+	  line_dup.DeleteBeforeIncluding("=");
+	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
+	  while(line_dup.Find(",,") != -1) line_dup.ReplaceString(",,", ",");
+	  line_dup.TrimLeading(','); line_dup.TrimTrailing(',');
+	  if(line_dup.Find(",") == -1) {
+	    if(!line_dup.is_null()) n->peer_endpoints.Add(line_dup);
+	  }
+	  else {
+	    num_arr = 0;
+	    vals = ParseStrings(line_dup, delimiter, num_arr);
+	    for(i = 0; i < num_arr; i++) {
+	      n->peer_endpoints.Add(vals[i]);
+	    }
+	    if(vals) {
+	      delete[] vals;
+	      vals = 0;
+	    }
+	  }
+	}
+	if(cfgkey == "tls_peer_fingerprint") {
+	  n->tls_peer_fingerprint = CfgGetEqualToString(ptr->data);
+	}
+	if(cfgkey == "floating_ip_provider") {
+	  n->floating_ip_provider = CfgGetEqualToString(ptr->data);
 	}
 
 	ptr = ptr->next;
@@ -1516,7 +1609,33 @@ int LoadOrBuildConfigFile()
     }
     nptr = nptr->next;
   }
-  
+
+  // TCP mode must have its TLS material configured, or the server
+  // refuses to start rather than running without encryption.
+  if(servercfg->cluster_transport == CM_TRANSPORT_TCP) {
+    struct stat tst;
+    const char *tls_files[3] = {
+      servercfg->tls_ca_file.c_str(),
+      servercfg->tls_cert_file.c_str(),
+      servercfg->tls_key_file.c_str()
+    };
+    const char *tls_names[3] = { "tls_ca_file", "tls_cert_file", "tls_key_file" };
+    for(int ti = 0; ti < 3; ti++) {
+      if(!tls_files[ti] || tls_files[ti][0] == '\0') {
+	NT_print("ERROR - cluster_transport=tcp requires", tls_names[ti]);
+	error_level = 1;
+      }
+      else if(stat(tls_files[ti], &tst) != 0) {
+	NT_print("ERROR - TLS file not found", tls_files[ti]);
+	error_level = 1;
+      }
+    }
+    if(servercfg->quorum_required && servercfg->witness_endpoint.is_null()) {
+      NT_print("ERROR - quorum_required=1 needs a witness_endpoint");
+      error_level = 1;
+    }
+  }
+
   // Set CM logfile name
   if(servercfg->is_client) {
     if(!servercfg->has_log_file_name_override) servercfg->logfile_name << clear << "drcm_client.log";

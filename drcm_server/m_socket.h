@@ -40,6 +40,7 @@ Extra socket functions for Datareel cluster manager.
 
 const int NET_CHECKWORD = 0X1010FEFE;
 const int DEFAULT_PORT = 53897;
+const int DEFAULT_TCP_PORT = 53898; // TCP+TLS mode listen port (Phase 4)
 const int DEFAULT_TIMEOUT = 300;
 const int DEFAULT_TIMEOUT_US = 0;
 const int DEFAULT_DATAGRAM_SIZE = 1500;
