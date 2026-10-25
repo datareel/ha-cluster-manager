@@ -39,7 +39,9 @@ From user account on both nodes:
 $ cd $HOME
 $ mkdir -p git
 $ cd git
-$ git clone https://github.com/datareel/datareel
+$ wget https://datareel.com/downloads/datareel/datareel-<version>.tar.gz
+$ tar xzf datareel-<version>.tar.gz
+$ mv datareel-<version> datareel
 $ cd $HOME/git/datareel/cluster_manager/drcm_server
 $ make
 $ sudo su root -c 'make install_root'

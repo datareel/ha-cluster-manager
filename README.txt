@@ -4,8 +4,8 @@ Copyright (c) 2024 DataReel Software Development
 Online docs:
 http://datareel.com/info_drcm.html
 
-Source code:
-https://github.com/datareel/ha-cluster-manager
+Source code and downloads:
+https://datareel.com/downloads/drcm/
 
 Contents:
 --------
@@ -93,7 +93,9 @@ System administrators, follow the instructions below to build an RPM
 for distribution:
 
 $ cd $HOME; mkdir -pv git; cd $HOME/git
-$ git clone https://github.com/datareel/ha-cluster-manager
+$ wget https://datareel.com/downloads/drcm/ha-cluster-manager-<version>.tar.gz
+$ tar xzf ha-cluster-manager-<version>.tar.gz
+$ mv ha-cluster-manager-<version> ha-cluster-manager
 $ cd ${HOME}/git/ha-cluster-manager/rpm_builder
 
 RHEL 9:
@@ -135,7 +137,9 @@ and install the DRCM server from the source code distro:
 $ ssh username@cmnode1
 $ mkdir -pv ~/git
 $ cd ~/git
-$ git clone https://github.com/datareel/ha-cluster-manager
+$ wget https://datareel.com/downloads/drcm/ha-cluster-manager-<version>.tar.gz
+$ tar xzf ha-cluster-manager-<version>.tar.gz
+$ mv ha-cluster-manager-<version> ha-cluster-manager
 $ cd ~/git/ha-cluster-manager/env
 $ source gnu_env.sh
 $ cd ~/git/ha-cluster-manager/drcm_server
@@ -267,10 +271,10 @@ Verify the rules:
 
 Setting Up Global Cluster Resources:
 -----------------------------------
-You can download the latest cluster resource scripts from the source
-code REPO:
+The latest cluster resource scripts are in the etc/resources folder
+of the source code release:
 
-https://github.com/datareel/ha-cluster-manager/tree/master/etc/resources
+https://datareel.com/downloads/drcm/
 
 All nodes in a cluster has the ability to run a global cluster
 resource as a primary function or as a backup function. DRCM has 5
@@ -1095,5 +1099,5 @@ Remaining Work on This Project:
 Support and Bug Tracking:
 ------------------------
 
-https://github.com/datareel/ha-cluster-manager/issues
+https://datareel.com/contact.php
 
