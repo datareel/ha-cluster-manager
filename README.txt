@@ -296,7 +296,7 @@ apps2, /etc/drcm/crontabs/apps_package2, /etc/cron.d, /etc/drcm/resources/cronta
 
 [CM_IPADDRS]
 # CSV format: nickname, Floating IP, netmask, Ethernet interface, ip takeover script
-cmnodef, 192.168.122.180, 255.255.255.0, eth0:1, /etc/drcm/resources/ipv4addr.sh
+cmnodef, 192.168.122.180, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh
 
 [CM_SERVICES]
 # CSV format: nickname, service_name, resource_script
@@ -341,156 +341,26 @@ node_services = web
 node_filesystems = data,arhive,webshare
 node_applications = ldm
 
-Floating IP Address Interface Configuration for RHEL 6 and RHEL 7:
------------------------------------------------------------------
-If your cluster has one or more floating IP addresses you must
-configure a sub-interface for each floating IP. A floating IP address
-is set in the global resource configuration  CM_IPADDRS section, for
-example:
+Floating IP Address Interface Configuration (NetworkManager):
+------------------------------------------------------------
+Floating IP addresses are managed through NetworkManager (nmcli). This
+is the supported method on RHEL 8, RHEL 9, RHEL 10 and later. RHEL 9
+and later no longer ship the legacy network-scripts, and the ifcfg
+sub-interface method (eth0:1) is kept for legacy systems only, see
+"Legacy Floating IP Address Configuration (network-scripts)" below.
 
-[CM_IPADDRS]
-cmnodef, 192.168.122.180, 255.255.255.0, eth0:1, /etc/drcm/resources/ipv4addr.sh
+The netmask can be given as a CIDR prefix (24) or a dotted netmask
+(255.255.255.0); the nmcli resource scripts convert it for nmcli.
 
-In the example above, we need to setup a sub-interface for eth0:
-
-# cd /etc/sysconfig/network-scripts
-# vi ifcfg-eth0:1
-
-DEVICE=eth0:1
-BOOTPROTO=none
-ONBOOT=yes
-
-Save changes and exit VI.
-
-IPADDR and PREFIX or NETMASK will be set by the DRCM server when the node
-resource is activated.
-
-# ifup eth0:1
-
-Floating IP Address Interface Configuration for RHEL 8:
-------------------------------------------------------
-For RHEL 8 the following method has been tested to fix the
-sub-interface issue with the legacy network-scripts and network
-manager.
-
-On all cluster nodes install the network-scripts:
-
-# yum -y install network-scripts 
-# systemctl enable network
-# reboot
-
-On all your cluster nodes setup all the ifcfg-name file using
-sub-interfaces as follows, for example on a VMWARE VM with 1
-interface:
-
-# export ETHINT=ens192
-# mkdir -p /root/backups
-# cp -av /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /root/backups/ifcfg-${ETHINT}
-# vi /etc/sysconfig/network-scripts/ifcfg-${ETHINT}
-
-NAME="System ens192"
-TYPE=Ethernet
-DEVICE=ens192
-## UUID= (This will be your devices UUID for this host)
-ONBOOT=yes
-BOOTPROTO=none
-IPV6INIT=no
-IPV4_FAILURE_FATAL=no
-DEFROUTE=yes
-DNS1=192.168.122.1
-DOMAIN=example.com
-
-#
-# Use the subinterace if this is the primary server
-##IPADDR0=192.168.122.180
-PREFIX0=24
-GATEWAY0=192.168.122.1
-#
-IPADDR1=192.168.122.183
-PREFIX1=24
-GATEWAY1=192.168.122.1
-
-Save changes and test the config:
-
-# systemctl restart network
-
-Once all your cluster node have the the interface files with the
-sub-interface setup run the following DRCM resource script:
-
-# export ETHINT=ens192
-# cp /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /etc/drcm/my_cluster_conf/$(hostname -s)_start_backup_ip_${ETHINT}
-# cp /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /etc/drcm/my_cluster_conf/$(hostname -s)_stop_backup_ip_${ETHINT}
-
-On the primary cluster node SFTP to the backup nodes and copy the
-template files you created on the backup nodes:
-
-# cd /etc/drcm/my_cluster_conf
-# sftp 192.168.122.184
-sftp> cd /etc/drcm/my_cluster_conf
-sftp> mget *_backup_ip_*
-sftp> exit
-
-Edit all the *_start_backup_ip_* templates change uncomment the
-sub-interface IP:
-
-#
-# Use the subinterace if this is the primary server
-IPADDR0=192.168.122.180
-PREFIX0=24
-GATEWAY0=192.168.122.1
-
-So all the start templates have the sub-interface IP enable and all
-the stop templates have the sub-interface commented out.
-
-Setup your cluster config to use the IPv4 copy config resource file:
-
-# vi /etc/drcm/cm.cfg
-
-[CM_IPADDRS]
-cmnodef, 192.168.122.180, 255.255.255.0, ens192, /etc/drcm/resources/ipv4addr_copy_config.sh
-
-NOTE: If you are clustering VM and bare metal server use the following
-syntax:
-
-[CM_IPADDRS]
-cmnodef, 192.168.122.180, 255.255.255.0, 'ens192|eno8303', /etc/drcm/resources/ipv4addr_copy_config.sh
-
-On the primary cluster node copy the /etc/drcm directory to all the
-backup nodes:
-
-# rsync -av --force --stats --progress -n /etc/drcm 192.168.122.184:/etc/.
-
-Verify the rsync output from the dry run looks correct and re-run with
-out the dry run option:
-
-# rsync -av --force --stats --progress /etc/drcm 192.168.122.184:/etc/.
-
-On each cluster node test the floating IP:
-
-# /etc/drcm/resources/ipv4addr_copy_config.sh 192.168.122.180 255.255.255.0 ens192 start
-# ip a
-
-You should see the floating IP as the primary interface and should be
-able SSH to the floating IP from another node. Once verified stop the
-sub-interface:
-
-# /etc/drcm/resources/ipv4addr_copy_config.sh 192.168.122.180 255.255.255.0 ens192 stop
-
-Repeat this test on all the cluster nodes.
-
-Floating IP Address Interface Configuration for RHEL 9
-------------------------------------------------------
-In RHEL 9 the legacy network-scripts are no longer available and you must use the
-NetworkManager to manage the network interfaces.   
-
-For the NMCLI 2 resource scripts have been added:
+Two NetworkManager resource scripts are provided:
 
 /etc/drcm/resources/ipv4addr_nmcli.sh
 /etc/drcm/resources/ipv4addr_copy_nmcli.sh
 
-The ipv4addr_nmcli.sh resource script is for simple configuration where we will only
-be creating a single sub-interface and the sub-interface does not need to be the
-primary interface.
+The ipv4addr_nmcli.sh resource script is the default, for simple configurations. It
+adds the floating IP as an extra address on the existing connection, so the floating
+IP does not need to be the primary address. No ifcfg sub-interface or template file
+is needed.
 
 The  ipv4addr_copy_nmcli.sh resource script is for complex configurations where you
 manually edit the network manager config file creating a start and stop interface file.
@@ -640,6 +510,155 @@ You should see the floating IP as the primary interface and should
 be able SSH to the floating IP from another node. Once verified stop the sub-interface:
 
 # /etc/drcm/resources/ipv4addr_copy_nmcli.sh 192.168.122.180 255.255.255.0 ens192 stop
+
+Repeat this test on all the cluster nodes.
+
+Legacy Floating IP Address Configuration (network-scripts):
+----------------------------------------------------------
+LEGACY ONLY: The methods in this section use the network-scripts
+package (ifcfg files, ifup and "systemctl restart network"). Use them
+only on older systems that do not run NetworkManager (RHEL 6 and RHEL
+7), or on existing RHEL 8 clusters that were already set up this way.
+All new clusters must use the NetworkManager method above. The legacy
+resource scripts are ipv4addr.sh, ipv4addr_multi.sh and
+ipv4addr_copy_config.sh, and the ifcfg-eth0_N templates in
+/etc/drcm/system_templates.
+
+Legacy: RHEL 6 and RHEL 7 sub-interfaces:
+-----------------------------------------
+If your cluster has one or more floating IP addresses you must
+configure a sub-interface for each floating IP. A floating IP address
+is set in the global resource configuration  CM_IPADDRS section, for
+example:
+
+[CM_IPADDRS]
+cmnodef, 192.168.122.180, 255.255.255.0, eth0:1, /etc/drcm/resources/ipv4addr.sh
+
+In the example above, we need to setup a sub-interface for eth0:
+
+# cd /etc/sysconfig/network-scripts
+# vi ifcfg-eth0:1
+
+DEVICE=eth0:1
+BOOTPROTO=none
+ONBOOT=yes
+
+Save changes and exit VI.
+
+IPADDR and PREFIX or NETMASK will be set by the DRCM server when the node
+resource is activated.
+
+# ifup eth0:1
+
+Legacy: RHEL 8 with network-scripts:
+-----------------------------------
+NOTE: On RHEL 8 use the NetworkManager method above for new clusters.
+For RHEL 8 the following method has been tested to fix the
+sub-interface issue with the legacy network-scripts and network
+manager.
+
+On all cluster nodes install the network-scripts:
+
+# yum -y install network-scripts 
+# systemctl enable network
+# reboot
+
+On all your cluster nodes setup all the ifcfg-name file using
+sub-interfaces as follows, for example on a VMWARE VM with 1
+interface:
+
+# export ETHINT=ens192
+# mkdir -p /root/backups
+# cp -av /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /root/backups/ifcfg-${ETHINT}
+# vi /etc/sysconfig/network-scripts/ifcfg-${ETHINT}
+
+NAME="System ens192"
+TYPE=Ethernet
+DEVICE=ens192
+## UUID= (This will be your devices UUID for this host)
+ONBOOT=yes
+BOOTPROTO=none
+IPV6INIT=no
+IPV4_FAILURE_FATAL=no
+DEFROUTE=yes
+DNS1=192.168.122.1
+DOMAIN=example.com
+
+#
+# Use the subinterace if this is the primary server
+##IPADDR0=192.168.122.180
+PREFIX0=24
+GATEWAY0=192.168.122.1
+#
+IPADDR1=192.168.122.183
+PREFIX1=24
+GATEWAY1=192.168.122.1
+
+Save changes and test the config:
+
+# systemctl restart network
+
+Once all your cluster node have the the interface files with the
+sub-interface setup run the following DRCM resource script:
+
+# export ETHINT=ens192
+# cp /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /etc/drcm/my_cluster_conf/$(hostname -s)_start_backup_ip_${ETHINT}
+# cp /etc/sysconfig/network-scripts/ifcfg-${ETHINT} /etc/drcm/my_cluster_conf/$(hostname -s)_stop_backup_ip_${ETHINT}
+
+On the primary cluster node SFTP to the backup nodes and copy the
+template files you created on the backup nodes:
+
+# cd /etc/drcm/my_cluster_conf
+# sftp 192.168.122.184
+sftp> cd /etc/drcm/my_cluster_conf
+sftp> mget *_backup_ip_*
+sftp> exit
+
+Edit all the *_start_backup_ip_* templates change uncomment the
+sub-interface IP:
+
+#
+# Use the subinterace if this is the primary server
+IPADDR0=192.168.122.180
+PREFIX0=24
+GATEWAY0=192.168.122.1
+
+So all the start templates have the sub-interface IP enable and all
+the stop templates have the sub-interface commented out.
+
+Setup your cluster config to use the IPv4 copy config resource file:
+
+# vi /etc/drcm/cm.cfg
+
+[CM_IPADDRS]
+cmnodef, 192.168.122.180, 255.255.255.0, ens192, /etc/drcm/resources/ipv4addr_copy_config.sh
+
+NOTE: If you are clustering VM and bare metal server use the following
+syntax:
+
+[CM_IPADDRS]
+cmnodef, 192.168.122.180, 255.255.255.0, 'ens192|eno8303', /etc/drcm/resources/ipv4addr_copy_config.sh
+
+On the primary cluster node copy the /etc/drcm directory to all the
+backup nodes:
+
+# rsync -av --force --stats --progress -n /etc/drcm 192.168.122.184:/etc/.
+
+Verify the rsync output from the dry run looks correct and re-run with
+out the dry run option:
+
+# rsync -av --force --stats --progress /etc/drcm 192.168.122.184:/etc/.
+
+On each cluster node test the floating IP:
+
+# /etc/drcm/resources/ipv4addr_copy_config.sh 192.168.122.180 255.255.255.0 ens192 start
+# ip a
+
+You should see the floating IP as the primary interface and should be
+able SSH to the floating IP from another node. Once verified stop the
+sub-interface:
+
+# /etc/drcm/resources/ipv4addr_copy_config.sh 192.168.122.180 255.255.255.0 ens192 stop
 
 Repeat this test on all the cluster nodes.
 

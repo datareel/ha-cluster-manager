@@ -7,7 +7,7 @@ if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
 #
 # ${1} = IP address, example: 192.168.122.24
 # ${2} = Netmask, examples: 255.255.255.0 or CIDR notation: 24
-# ${3} = Ethernet interfaces, example: 'eth0:1|ens192:0|em1:0'
+# ${3} = Ethernet interfaces, examples: ens192 or 'ens192|eno8303'
 # ${4} = actions: start|stop
 
 error_level=0
@@ -33,14 +33,14 @@ if [ -z ${4} ]; then
 fi
 
 if [ $error_level -ne 0 ]; then
-    echo "Usage: ${0} 192.168.122.25 24 eth0:1|ens192:0|em1:0 start|stop"
+    echo "Usage: ${0} 192.168.122.25 24 'ens192|eno8303' start|stop"
     exit $error_level
 fi
 
 SAVEIFS=$IFS
 IFS='|'
 for i in ${3}; do
-    nmcli -t -f NAME c show --active | grep ${i} &> /dev/null
+    nmcli -t -f NAME c show --active | grep -Fx "${i}" &> /dev/null
     if [ $? -eq 0 ]; then
 	ETHINT="${i}"
 	break

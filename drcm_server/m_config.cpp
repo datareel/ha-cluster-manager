@@ -770,8 +770,8 @@ int LoadOrBuildConfigFile()
     dfile << "[CM_IPADDRS]" << "\n";
     dfile << "# Cluster floating IP addresses" << "\n";
     dfile << "# CSV format: nickname, Floating IP, netmask, Ethernet interface, ip takeover script" << "\n";
-    dfile << "web, 192.168.122.25, 255.255.255.0, eth0:1, /etc/drcm/resources/ipv4addr.sh" << "\n";
-    dfile << "ldm, 192.168.122.35, 255.255.255.0, eth0:2, /etc/drcm/resources/ipv4addr.sh" << "\n";
+    dfile << "web, 192.168.122.25, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh" << "\n";
+    dfile << "ldm, 192.168.122.35, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh" << "\n";
     dfile << "" << "\n";
     dfile << "[CM_SERVICES]" << "\n";
     dfile << "# Services managed by the cluster manager" << "\n";

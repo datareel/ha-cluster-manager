@@ -1,4 +1,7 @@
 # Cluster manaager sub-interface template file
+# LEGACY: network-scripts only (RHEL 7 and older, no NetworkManager).
+# On RHEL 8 and later use the NetworkManager resource scripts instead
+# (/etc/drcm/resources/ipv4addr_nmcli.sh), which need no template.
 # RHEL/CENTOS location: /etc/sysconfig/network-scripts
 # Install as ifcfg-eth0:1 (stored as ifcfg-eth0_1 because Windows does not allow ':' in file names)
 # NOTE: IPADDR and PREFIX/NETMASK will be set by DRCM process

@@ -69,8 +69,8 @@ NOTE: Must get ucast value from the ha.cf from both nodes. In heartbaet the orde
 # emacs /etc/drcm/cm.cfg /etc/ha.d_old_archive_only/haresources
 
 [CM_IPADDRS]
-web, 192.168.2.15, 26, em1, /etc/drcm/resources/ipv4addr.sh
-db, 192.168.2.17, 24, em2, /etc/drcm/resources/ipv4addr.sh
+web, 192.168.2.15, 26, em1, /etc/drcm/resources/ipv4addr_nmcli.sh
+db, 192.168.2.17, 24, em2, /etc/drcm/resources/ipv4addr_nmcli.sh
 
 from haresources
 
@@ -128,7 +128,7 @@ On primary node:
 
 # /usr/sbin/drcm_server --check-config
 
-# ifconfig
+# ip addr
 
 Check for floating IP addresses
 
@@ -143,7 +143,7 @@ Depending on you cm.cfg setting the cluster resource will activate with 1 to 5 m
   Resource status: All cluster resources in NORMAL state
   Cluster status: DOWN nodes
 
-# ifconfig
+# ip addr
 # chkconfig drcm_server on
 
 Mirror /etc/drcm directory to back up node:

@@ -1,5 +1,11 @@
 #!/bin/bash
 # DR cluster resource script for adding or removing IPv4 addresses
+#
+# LEGACY: for systems without NetworkManager (RHEL 7 and older) that
+# use network-scripts alias sub-interfaces such as eth0:1, set up from
+# the ifcfg-eth0_N templates in /etc/drcm/system_templates. The address
+# is added with "ip addr", so NetworkManager does not know about it.
+# On RHEL 8 and later use ipv4addr_nmcli.sh or ipv4addr_copy_nmcli.sh.
 
 if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
 

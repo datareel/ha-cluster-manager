@@ -95,6 +95,12 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   stands down instead of double-owning resources.
 
 ### Fixed
+- `ipv4addr_nmcli.sh` accepts a dotted netmask (`255.255.255.0`) as
+  well as a CIDR prefix. Before, it passed the dotted netmask straight
+  to `nmcli`, which only accepts a prefix, so configs written that way
+  failed to add the floating IP.
+- The nmcli resource scripts match the NetworkManager connection name
+  exactly. Before, a substring match let `ens19` select `ens192`.
 - Config settings are now matched by their full name. Before, a line
   matched any setting whose name it contained, so `debug_level = 1`
   also turned on `debug` and `verbose_level = 1` turned on `verbose`.
@@ -204,6 +210,19 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   mode so it can run without a display.
 
 ### Changed
+- NetworkManager is now the default for floating IP addresses. The
+  README, the example configs (`cm_2_node_example.cfg`,
+  `cm_4_node_example.cfg`) and the default config written by
+  `drcm_server` use `ipv4addr_nmcli.sh` with a NetworkManager
+  connection name (`ens192`) instead of `ipv4addr.sh` with an
+  `eth0:1` sub-interface. The network-scripts (ifcfg) method is
+  documented as legacy only, in its own README section.
+- `ipv4addr.sh`, `ipv4addr_multi.sh`, `ipv4addr_copy_config.sh` and the
+  `ifcfg-eth0_N` templates are marked as legacy (systems without
+  NetworkManager). They still work unchanged for existing clusters.
+- The `ifcfg-eth0:N` templates are now stored as `ifcfg-eth0_N`,
+  because Windows does not allow `:` in file names. Each one notes the
+  name to install it as.
 - `build/makefile`, `env/glibobjs.mak` and `env/glibdeps.mak` now list
   only the 16 bundled library components. Dependency lists were
   regenerated with `g++ -MM`.
