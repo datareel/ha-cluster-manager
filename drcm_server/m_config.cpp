@@ -772,6 +772,8 @@ int LoadOrBuildConfigFile()
     dfile << "# CSV format: nickname, Floating IP, netmask, Ethernet interface, ip takeover script" << "\n";
     dfile << "web, 192.168.122.25, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh" << "\n";
     dfile << "ldm, 192.168.122.35, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh" << "\n";
+    dfile << "# IPv6 floating IP example, prefix length instead of netmask:" << "\n";
+    dfile << "##web6, 2001:db8:122::25, 64, ens192, /etc/drcm/resources/ipv6addr_nmcli.sh" << "\n";
     dfile << "" << "\n";
     dfile << "[CM_SERVICES]" << "\n";
     dfile << "# Services managed by the cluster manager" << "\n";

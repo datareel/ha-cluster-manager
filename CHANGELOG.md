@@ -182,6 +182,13 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   includes `gxsocket.h` directly, which `gxtelnet.h` used to pull in.
 
 ### Added
+- `etc/resources/ipv6addr_nmcli.sh`: IPv6 floating IP resource script
+  for NetworkManager. It takes an IPv6 address and a prefix length and
+  works like `ipv4addr_nmcli.sh`. It checks that IPv6 is enabled on
+  the connection and matches the address however it is written. Cluster
+  messages still use IPv4. The README has an IPv6 section with config,
+  test and firewalld examples, and the example configs and the default
+  config written by `drcm_server` include a commented IPv6 line.
 - `build/sync_datareel.sh` copies the DataReel files DRCM uses from a
   DataReel source tree, so the bundled copy can be refreshed from the
   upstream repository.

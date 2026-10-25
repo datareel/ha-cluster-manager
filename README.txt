@@ -297,6 +297,8 @@ apps2, /etc/drcm/crontabs/apps_package2, /etc/cron.d, /etc/drcm/resources/cronta
 [CM_IPADDRS]
 # CSV format: nickname, Floating IP, netmask, Ethernet interface, ip takeover script
 cmnodef, 192.168.122.180, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh
+# IPv6 floating IPs use ipv6addr_nmcli.sh and a prefix length, see below
+##cmnodef6, 2001:db8:122::180, 64, ens192, /etc/drcm/resources/ipv6addr_nmcli.sh
 
 [CM_SERVICES]
 # CSV format: nickname, service_name, resource_script
@@ -353,10 +355,12 @@ sub-interface method (eth0:1) is kept for legacy systems only, see
 The netmask can be given as a CIDR prefix (24) or a dotted netmask
 (255.255.255.0); the nmcli resource scripts convert it for nmcli.
 
-Two NetworkManager resource scripts are provided:
+Two NetworkManager resource scripts are provided for IPv4:
 
 /etc/drcm/resources/ipv4addr_nmcli.sh
 /etc/drcm/resources/ipv4addr_copy_nmcli.sh
+
+For IPv6 floating IPs see "IPv6 Floating IP Addresses" below.
 
 The ipv4addr_nmcli.sh resource script is the default, for simple configurations. It
 adds the floating IP as an extra address on the existing connection, so the floating
@@ -513,6 +517,65 @@ be able SSH to the floating IP from another node. Once verified stop the sub-int
 # /etc/drcm/resources/ipv4addr_copy_nmcli.sh 192.168.122.180 255.255.255.0 ens192 stop
 
 Repeat this test on all the cluster nodes.
+
+IPv6 Floating IP Addresses (NetworkManager):
+-------------------------------------------
+Floating IP addresses can be IPv6 as well as IPv4. The cluster nodes
+still talk to each other over IPv4 (keep alive IPs, heartbeats and
+cluster messages), so every node needs an IPv4 address for the
+cluster; only the floating IPs that users connect to can be IPv6. A
+cluster can have both IPv4 and IPv6 floating IPs.
+
+Use the ipv6addr_nmcli.sh resource script and give a prefix length
+(for example 64) in the netmask column:
+
+# vi /etc/drcm/cm.cfg
+
+[CM_IPADDRS]
+cmnodef, 192.168.122.180, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh
+cmnodef6, 2001:db8:122::180, 64, ens192, /etc/drcm/resources/ipv6addr_nmcli.sh
+
+And add the nickname to the nodes the same way as an IPv4 address:
+
+node_floating_ip_addrs = cmnodef,cmnodef6
+node_backup_floating_ip_addrs = cmnode1:cmnodef,cmnode1:cmnodef6
+
+Like ipv4addr_nmcli.sh, ipv6addr_nmcli.sh needs the NetworkManager
+connection name to be the same as the device name, and it accepts a
+| separated list such as 'ens192|eno8303'. IPv6 must be enabled on the
+connection; check it on each node with:
+
+# nmcli -g ipv6.method connection show ens192
+
+If it prints "disabled" or "ignore", enable it (auto keeps the router
+assigned addresses and adds the floating IP next to them):
+
+# nmcli con mod ens192 ipv6.method auto
+# nmcli device reapply ens192
+
+On each cluster node test the IPv6 floating IP:
+
+# /etc/drcm/resources/ipv6addr_nmcli.sh 2001:db8:122::180 64 ens192 start
+# ip -6 addr show dev ens192
+# /etc/drcm/resources/ipv6addr_nmcli.sh 2001:db8:122::180 64 ens192 stop
+
+For complex configurations, ipv4addr_copy_nmcli.sh also works for
+IPv6: put the floating IPv6 address in the [ipv6] section of the start
+template (for example address1=2001:db8:122::180/64) and list it with
+its IPv6 address in CM_IPADDRS.
+
+Clients reaching IPv6 floating IPs need the service ports open for
+IPv6 in firewalld. Service and port rules without a family cover both
+IPv4 and IPv6, for example:
+
+# firewall-cmd --permanent --add-service=http
+# firewall-cmd --reload
+
+Rich rules with a source address are per family; use family="ipv6"
+with an IPv6 source:
+
+# firewall-cmd --permanent --add-rich-rule='rule family="ipv6" source address="2001:db8:122::/64" service name="http" accept'
+# firewall-cmd --reload
 
 Legacy Floating IP Address Configuration (network-scripts):
 ----------------------------------------------------------
