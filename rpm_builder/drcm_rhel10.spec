@@ -1,6 +1,6 @@
 BuildArch: x86_64
 Name: drcm_server
-Version: 1.41        
+Version: 1.42        
 Release: 1.el10.x86_64
 Summary: Datareel Cluster Manager RPM        
 Group: System Environment/Daemons
@@ -61,6 +61,7 @@ tar xvf drcm_server.tar.gz -C $RPM_BUILD_ROOT
 %config %attr(0755, root, root) "/etc/drcm/my_cluster_conf/my_cluster_info_example1.sh"
 %config %attr(0755, root, root) "/etc/drcm/my_cluster_conf/testfs_sync_list.sh"
 %config(noreplace) %dir %attr(0755, root, root) "/etc/drcm/resources"
+%config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/aws_ipv4addr.sh"
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/cifs.sh"
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/crontab.sh"
 %config(noreplace) %attr(0755, root, root) "/etc/drcm/resources/ipv4addr.sh"
@@ -117,7 +118,11 @@ if [ $1 -ge 1 ] ; then
 fi
 
 %changelog
-* Fri Oct 24 2026 Datareel <datareel.com>
+* Sun Oct 25 2026 Datareel <datareel.com>
+- Release 1.42: authenticated v2 cluster protocol, TCP + TLS transport,
+  NetworkManager floating IPs by default, IPv6 floating IP script
+
+* Sat Oct 24 2026 Datareel <datareel.com>
 - Native systemd unit (Type=simple) installed to /usr/lib/systemd/system;
   dropped the SysV init wrapper; hardened build flags; modernized scripts
 

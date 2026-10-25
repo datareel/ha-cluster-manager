@@ -5,6 +5,27 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+## [1.42] - 2026-10-25
+
+### Upgrading
+- All nodes in a cluster must be upgraded together. Every cluster
+  message is now an authenticated v2 frame (see Security below), and
+  1.42 nodes do not talk to 1.41 or older nodes. Stop DRCM on every
+  node, install 1.42 on all of them, then start them again.
+- Existing `cm.cfg` files keep working unchanged: the defaults are
+  UDP transport and no quorum. `tools/migrate_cfg.py` can add the new
+  TCP + TLS and quorum settings.
+- The IPv6 floating IP script (`ipv6addr_nmcli.sh`) is new in this
+  release and has not yet been tested on a live cluster. Cluster
+  traffic between nodes is still IPv4.
+
+### Changed
+- The RHEL 10, 9 and 8 RPMs now package `aws_ipv4addr.sh`; before,
+  `rpmbuild` stopped on it as an unpackaged file.
+- The README RPM section covers RHEL 8, 9 and 10 and the prebuilt
+  RPMs on the downloads page, and drops the RHEL 6 and 7 build scripts
+  that were removed.
+
 ### Security
 - Commands run through `su` or `sudo` are now shell quoted. Before,
   a single quote in an application start, stop or ensure command

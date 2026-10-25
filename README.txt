@@ -89,6 +89,12 @@ consider the following:
 
 RPM Install
 -----------
+Prebuilt RPMs for RHEL 8, 9 and 10 are on the DRCM downloads page:
+
+https://datareel.com/downloads/drcm/
+
+$ sudo dnf -y install ./drcm_server-<version>-1.el9.x86_64.x86_64.rpm
+
 System administrators, follow the instructions below to build an RPM
 for distribution:
 
@@ -98,25 +104,28 @@ $ tar xzf ha-cluster-manager-<version>.tar.gz
 $ mv ha-cluster-manager-<version> ha-cluster-manager
 $ cd ${HOME}/git/ha-cluster-manager/rpm_builder
 
+The build needs gcc-c++, make, rpm-build and openssl-devel.
+
+RHEL 10:
+
+$ ./make_rhel10_rpm.sh
+$ sudo dnf -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-<version>-1.el10.x86_64.x86_64.rpm
+
 RHEL 9:
 
 $ ./make_rhel9_rpm.sh
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.40-1.el9.x86_64.x86_64.rpm"
+$ sudo dnf -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-<version>-1.el9.x86_64.x86_64.rpm
 
 RHEL 8:
 
 $ ./make_rhel8_rpm.sh
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.40-1.el8.x86_64.x86_64.rpm"
+$ sudo dnf -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-<version>-1.el8.x86_64.x86_64.rpm
 
-RHEL7/CENTOS7:
+RHEL 6 and 7 are no longer built. Use the 1.37 RPMs on the downloads
+page for those systems.
 
-$ ./make_rhel7_rpm.sh
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.40-1.el7.x86_64.x86_64.rpm"
-
-RHEL6/CENTOS6:
-
-$ ./make_rhel6_rpm.sh
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.40-1.el6.x86_64.x86_64.rpm"
+When upgrading a cluster to 1.42 from 1.41 or older, upgrade all nodes
+together. 1.42 nodes do not talk to older nodes; see CHANGELOG.md.
 
 Useful RPM command to verify package contents:
 
