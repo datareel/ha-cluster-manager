@@ -121,8 +121,8 @@ RHEL 8:
 $ ./make_rhel8_rpm.sh
 $ sudo dnf -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-<version>-1.el8.x86_64.x86_64.rpm
 
-RHEL 6 and 7 are no longer built. Use the 1.37 RPMs on the downloads
-page for those systems.
+RHEL 6 and 7 are no longer supported; 1.37 was the last release for
+them.
 
 When upgrading a cluster to 1.42 from 1.41 or older, upgrade all nodes
 together. 1.42 nodes do not talk to older nodes; see CHANGELOG.md.
