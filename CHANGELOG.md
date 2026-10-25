@@ -220,6 +220,13 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 - `ipv4addr.sh`, `ipv4addr_multi.sh`, `ipv4addr_copy_config.sh` and the
   `ifcfg-eth0_N` templates are marked as legacy (systems without
   NetworkManager). They still work unchanged for existing clusters.
+- The README documents host firewall rules with firewalld only. The
+  iptables commands were removed as legacy. The ping instructions no
+  longer turn on ICMP block inversion, which blocked every ICMP type
+  except ping; firewalld allows ping by default.
+- RHEL 8 is documented as NetworkManager only; the RHEL 8
+  network-scripts method is kept as a legacy reference. Example
+  interface names use `ens192` instead of `eth0`.
 - The `ifcfg-eth0:N` templates are now stored as `ifcfg-eth0_N`,
   because Windows does not allow `:` in file names. Each one notes the
   name to install it as.

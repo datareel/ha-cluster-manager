@@ -1,5 +1,5 @@
 # Cluster manaager sub-interface template file
-# LEGACY: network-scripts only (RHEL 7 and older, no NetworkManager).
+# LEGACY: network-scripts only (RHEL 6/7 without NetworkManager).
 # On RHEL 8 and later use the NetworkManager resource scripts instead
 # (/etc/drcm/resources/ipv4addr_nmcli.sh), which need no template.
 # RHEL/CENTOS location: /etc/sysconfig/network-scripts

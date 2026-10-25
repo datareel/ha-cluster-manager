@@ -225,45 +225,45 @@ the bind_to_keep_alive_ip to 0.
 
 Each cluster node must have host-based firewall rules allowing the
 DRCM server access to the TCP and UDP ports set in CM global
-configuration:
+configuration.
 
-For IPTABLES:
-
-# iptables -N CLUSTERMANAGER
-# iptables -I INPUT 3 -j CLUSTERMANAGER
-# iptables -A CLUSTERMANAGER -p UDP --dport 53897 -s 192.168.122.183/32 -j ACCEPT 
-# iptables -A CLUSTERMANAGER -p UDP --dport 53897 -s 192.168.122.184/32 -j ACCEPT 
-# iptables -A CLUSTERMANAGER -p TCP --dport 53897 -s 192.168.122.183/32 -j ACCEPT 
-# iptables -A CLUSTERMANAGER -p TCP --dport 53897 -s 192.168.122.184/32 -j ACCEPT 
-
-For FIREWALLD:
+Use firewalld for the host-based firewall rules. Direct iptables
+commands are legacy and are no longer documented here; on RHEL 8 and
+later firewalld manages the nftables rules for you.
 
 Review your current zones:
 
+# firewall-cmd --get-active-zones
 # firewall-cmd --list-all
 
-If you have zones setup use --zone to apply to the zone with
-cluster interface:
+The commands below apply to the default zone. If the cluster interface
+is in a different zone, add --zone=<zone> to each command.
 
-# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.183/32" port port="53897" protocol="udp" accept' --permanent
-# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" port port="53897" protocol="udp" accept' --permanent
-# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.183/32" port port="53897" protocol="tcp" accept' --permanent
-# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" port port="53897" protocol="tcp" accept' --permanent
+Allow the DRCM UDP and TCP ports from each of the other cluster nodes:
+
+# firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.122.183/32" port port="53897" protocol="udp" accept'
+# firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" port port="53897" protocol="udp" accept'
+# firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.122.183/32" port port="53897" protocol="tcp" accept'
+# firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" port port="53897" protocol="tcp" accept'
 # firewall-cmd --reload
 
-In the host-based firewall you must all ping and SSH between the
-cluster nodes. To allow ping in firewalld:
+The cluster nodes must also be able to ping and SSH to each other.
+firewalld allows ping by default. If ping has been blocked, check for
+an echo-request ICMP block and remove it:
 
-# firewall-cmd --permanent --add-icmp-block-inversion
-# firewall-cmd --permanent --add-icmp-block=echo-reply
-# firewall-cmd --permanent --add-icmp-block=echo-request
+# firewall-cmd --list-icmp-blocks
+# firewall-cmd --permanent --remove-icmp-block=echo-request
 # firewall-cmd --reload
 
-To allow SSH in firewalld for cluster node IPs:
+To allow SSH only from the cluster node IPs:
 
-# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.183/32" service name="ssh" accept' --permanent
-# firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" service name="ssh" accept' --permanent
+# firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.122.183/32" service name="ssh" accept'
+# firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" service name="ssh" accept'
 # firewall-cmd --reload
+
+Verify the rules:
+
+# firewall-cmd --list-rich-rules
 
 Setting Up Global Cluster Resources:
 -----------------------------------
@@ -345,7 +345,8 @@ Floating IP Address Interface Configuration (NetworkManager):
 ------------------------------------------------------------
 Floating IP addresses are managed through NetworkManager (nmcli). This
 is the supported method on RHEL 8, RHEL 9, RHEL 10 and later. RHEL 9
-and later no longer ship the legacy network-scripts, and the ifcfg
+and later no longer ship the legacy network-scripts, RHEL 8 systems
+should all be converted to NetworkManager, and the ifcfg
 sub-interface method (eth0:1) is kept for legacy systems only, see
 "Legacy Floating IP Address Configuration (network-scripts)" below.
 
@@ -518,8 +519,9 @@ Legacy Floating IP Address Configuration (network-scripts):
 LEGACY ONLY: The methods in this section use the network-scripts
 package (ifcfg files, ifup and "systemctl restart network"). Use them
 only on older systems that do not run NetworkManager (RHEL 6 and RHEL
-7), or on existing RHEL 8 clusters that were already set up this way.
-All new clusters must use the NetworkManager method above. The legacy
+7). RHEL 8 and later systems must use the NetworkManager method above;
+the RHEL 8 network-scripts method is kept only as a reference for
+converting old clusters. The legacy
 resource scripts are ipv4addr.sh, ipv4addr_multi.sh and
 ipv4addr_copy_config.sh, and the ifcfg-eth0_N templates in
 /etc/drcm/system_templates.
@@ -550,9 +552,9 @@ resource is activated.
 
 # ifup eth0:1
 
-Legacy: RHEL 8 with network-scripts:
------------------------------------
-NOTE: On RHEL 8 use the NetworkManager method above for new clusters.
+Legacy: RHEL 8 with network-scripts (reference only):
+----------------------------------------------------
+NOTE: All RHEL 8 systems should now use the NetworkManager method above.
 For RHEL 8 the following method has been tested to fix the
 sub-interface issue with the legacy network-scripts and network
 manager.
@@ -668,12 +670,12 @@ After setting up your cluster configuration and mirroring the
 "/etc/drcm" directory to all nodes in the cluster, start the DRCM
 server on each node. 
 
-RHEL 7/CENTOS 7:
+RHEL 7 and later (systemd):
 
 # systemctl start drcm_server
 # systemctl status drcm_server
 
-RHEL 6/CENTOS 6:
+Legacy RHEL 6/CENTOS 6:
 
 # service drcm_server start
 # service drcm_server status
@@ -698,11 +700,11 @@ To test resource fail back:
 
 After testing make the DRCM service persistent:
 
-RHEL 7/CENTOS 7:
+RHEL 7 and later (systemd):
 
 # systemctl enable drcm_server
 
-RHEL 6/CENTOS 6:
+Legacy RHEL 6/CENTOS 6:
 
 # chkconfig drcm_server on
 
@@ -837,14 +839,14 @@ export BACKUP_USER="root"
 # file systems. File systems on this node will be replicated to the
 # backup file system in the event of a fail over to the backup node.
 export PRIMARY_FILESYSTEMS_IP="192.168.122.111"
-export PRIMARY_FILESYSTEMS_ETH="eth0"
+export PRIMARY_FILESYSTEMS_ETH="ens192"
 #
 # IP address and Ethernet Interface of the backup for this cluster
 # node,
 # where the primary file systems are mirrored too. When the primary
 # node is down this node will host the file systems.
 export BACKUP_FILESYSTEMS_IP="192.168.122.112"
-export BACKUP_FILESYSTEMS_ETH="eth0"
+export BACKUP_FILESYSTEMS_ETH="ens192"
 
 # Allow RSYNC on a diffent IP/Interface if high bandwidth required to sync file systems
 # These settings are used to move high bandwidth consumption to another Ethernet interface 

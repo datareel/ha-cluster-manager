@@ -23,13 +23,13 @@ export BACKUP_USER="root"
 # file systems. File systems on this node will be replicated to the 
 # backup file system in the event of a fail over to the backup node.
 export PRIMARY_FILESYSTEMS_IP="192.168.122.111"
-export PRIMARY_FILESYSTEMS_ETH="eth0"
+export PRIMARY_FILESYSTEMS_ETH="ens192"
 #
 # IP address and Ethernet Interface of the backup for this cluster node, 
 # where the primary file systems are mirrored too. When the primary
 # node is down this node will host the file systems. 
 export BACKUP_FILESYSTEMS_IP="192.168.122.112"
-export BACKUP_FILESYSTEMS_ETH="eth0"
+export BACKUP_FILESYSTEMS_ETH="ens192"
 
 # Allow RSYNC on a diffent IP/Interface if high bandwidth required to sync file systems
 ## export PRIMARY_FILESYSTEMS_RSYNC_IP=""
