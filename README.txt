@@ -1,8 +1,8 @@
-DataReel Cluster Manager (DRCM) 1.40 Readme File
+DataReel Cluster Manager (DRCM) 1.42 Readme File
 Copyright (c) 2024 DataReel Software Development
 
 Online docs:
-http://datareel.com/info_drcm.html
+https://datareel.com/info_drcm.php
 
 Source code and downloads:
 https://datareel.com/downloads/drcm/
