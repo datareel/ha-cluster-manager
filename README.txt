@@ -1103,7 +1103,8 @@ mail as a smart host, search online for: "postfix smarthost setup"
 Remaining Work on This Project:
 ------------------------------ 
 
-* Long term, add TCP cluster protocol for WAN based clusters
+* IPv6 cluster traffic between nodes, as an opt-in option (IPv4 stays
+  the default). TCP + TLS clusters for WAN links were added in 1.42.
 
 Support and Bug Tracking:
 ------------------------
