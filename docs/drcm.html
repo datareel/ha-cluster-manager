@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DRCM Administrator Guide</title>
+<meta name="description" content="DataReel Cluster Manager (DRCM) 1.42 administrator guide: install, configuration, transports, security, quorum, failover and troubleshooting.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --text: #1c2330;
+  --text-muted: #5a6474;
+  --border: #dde1e7;
+  --accent: #1f6feb;
+  --accent-soft: #e6efff;
+  --code-bg: #f3f5f8;
+  --code-text: #24292f;
+  --ok: #1a7f37;
+  --ok-soft: #e7f6ec;
+  --warn: #9a6700;
+  --warn-soft: #fff6dc;
+  --bad: #c62828;
+  --bad-soft: #fdecec;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --rail: 270px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1419;
+    --surface: #161c24;
+    --surface-2: #1d2530;
+    --text: #e3e8ef;
+    --text-muted: #9aa5b4;
+    --border: #2a3441;
+    --accent: #58a6ff;
+    --accent-soft: #15253d;
+    --code-bg: #111821;
+    --code-text: #d7dee8;
+    --ok: #3fb950;
+    --ok-soft: #12261a;
+    --warn: #d29922;
+    --warn-soft: #2a2110;
+    --bad: #f85149;
+    --bad-soft: #2d1416;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1419;
+  --surface: #161c24;
+  --surface-2: #1d2530;
+  --text: #e3e8ef;
+  --text-muted: #9aa5b4;
+  --border: #2a3441;
+  --accent: #58a6ff;
+  --accent-soft: #15253d;
+  --code-bg: #111821;
+  --code-text: #d7dee8;
+  --ok: #3fb950;
+  --ok-soft: #12261a;
+  --warn: #d29922;
+  --warn-soft: #2a2110;
+  --bad: #f85149;
+  --bad-soft: #2d1416;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-text-size-adjust: 100%;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Top bar */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 12px;
+  height: 56px; padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.brand span { color: var(--text-muted); font-weight: 500; }
+.topbar .spacer { flex: 1; }
+.btn {
+  font: inherit; font-size: 14px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text);
+  white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#navToggle { display: none; }
+
+/* Layout */
+.layout { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); }
+nav.rail {
+  position: sticky; top: 56px; align-self: start;
+  height: calc(100vh - 56px); overflow-y: auto;
+  padding: 20px 12px 40px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+nav.rail h2 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); margin: 0 8px 8px;
+}
+nav.rail ol { list-style: none; margin: 0; padding: 0; counter-reset: sec; }
+nav.rail li a {
+  display: block; padding: 6px 10px; border-radius: 6px;
+  color: var(--text-muted); font-size: 14px; line-height: 1.4;
+}
+nav.rail li a::before {
+  counter-increment: sec; content: counter(sec) ".";
+  display: inline-block; width: 26px; color: var(--text-muted); opacity: 0.7;
+}
+nav.rail li a:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
+nav.rail li a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+main { padding: 32px 40px 80px; max-width: 980px; min-width: 0; }
+header.hero { margin-bottom: 32px; }
+header.hero h1 { font-size: 34px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+header.hero p { color: var(--text-muted); margin: 0; font-size: 17px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.pill {
+  font-size: 13px; padding: 3px 10px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);
+}
+
+section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 24px 28px;
+  margin-bottom: 24px;
+}
+section > h2 { font-size: 24px; margin: 0 0 12px; letter-spacing: -0.01em; }
+h3 { font-size: 18px; margin: 24px 0 8px; }
+h4 { font-size: 15px; margin: 18px 0 6px; }
+p { margin: 0 0 12px; }
+ul, ol { padding-left: 22px; margin: 0 0 12px; }
+li { margin: 3px 0; }
+
+code {
+  font-family: var(--mono); font-size: 0.88em;
+  background: var(--code-bg); color: var(--code-text);
+  padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+pre {
+  font-family: var(--mono); font-size: 13.5px; line-height: 1.55;
+  background: var(--code-bg); color: var(--code-text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 16px; margin: 0 0 14px; overflow-x: auto;
+}
+pre code { background: none; border: 0; padding: 0; font-size: inherit; overflow-wrap: normal; }
+
+.table-wrap { overflow-x: auto; margin: 0 0 14px; border: 1px solid var(--border); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+th { background: var(--surface-2); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+
+.callout {
+  border-left: 4px solid var(--accent);
+  background: var(--accent-soft);
+  padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 0 0 14px;
+}
+.callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+.callout.bad { border-color: var(--bad); background: var(--bad-soft); }
+.callout.ok { border-color: var(--ok); background: var(--ok-soft); }
+.callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+
+.badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.badge.ok { color: var(--ok); background: var(--ok-soft); }
+.badge.warn { color: var(--warn); background: var(--warn-soft); }
+.badge.bad { color: var(--bad); background: var(--bad-soft); }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 0 0 14px; }
+.card { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; background: var(--surface-2); }
+.card h4 { margin-top: 0; }
+.card p:last-child { margin-bottom: 0; }
+
+.diagram { margin: 6px 0 16px; overflow-x: auto; }
+.diagram svg { display: block; max-width: 100%; height: auto; }
+.diagram .box { fill: var(--surface-2); stroke: var(--border); }
+.diagram .boxa { fill: var(--accent-soft); stroke: var(--accent); }
+.diagram text { fill: var(--text); font-family: var(--font); font-size: 13px; }
+.diagram .muted { fill: var(--text-muted); font-size: 12px; }
+.diagram .line { stroke: var(--text-muted); stroke-width: 1.5; fill: none; }
+.diagram .dash { stroke-dasharray: 5 4; }
+
+footer { color: var(--text-muted); font-size: 14px; padding-top: 8px; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  #navToggle { display: inline-flex; }
+  .brand span { display: none; }
+  nav.rail {
+    position: fixed; top: 56px; left: 0; z-index: 15;
+    width: min(300px, 85vw); transform: translateX(-100%);
+    transition: transform 0.2s ease; box-shadow: var(--shadow);
+  }
+  body.nav-open nav.rail { transform: none; }
+  main { padding: 20px 16px 60px; }
+  section { padding: 18px 16px; }
+  header.hero h1 { font-size: 27px; }
+}
+@media print {
+  .topbar, nav.rail { display: none; }
+  .layout { display: block; }
+  section { box-shadow: none; break-inside: avoid-page; }
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <button class="btn" id="navToggle" type="button" aria-controls="rail" aria-expanded="false">&#9776; Contents</button>
+  <div class="brand">DRCM <span>Administrator Guide</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeToggle" type="button" aria-label="Toggle light or dark theme"><span id="themeLabel">Theme</span></button>
+</div>
+
+<div class="layout">
+<nav class="rail" id="rail" aria-label="Sections">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#overview">Overview and architecture</a></li>
+    <li><a href="#platforms">Platform support</a></li>
+    <li><a href="#install">Install and build</a></li>
+    <li><a href="#authkey">Cluster auth keys</a></li>
+    <li><a href="#config">cm.cfg reference</a></li>
+    <li><a href="#resources">Managed resources</a></li>
+    <li><a href="#transports">Transports: UDP and TCP</a></li>
+    <li><a href="#security">Security model</a></li>
+    <li><a href="#tls">TCP and TLS setup</a></li>
+    <li><a href="#quorum">Witness quorum</a></li>
+    <li><a href="#running">Running and monitoring</a></li>
+    <li><a href="#floating">Floating IP failover</a></li>
+    <li><a href="#tools">Setup and migration tools</a></li>
+    <li><a href="#walkthrough">Two-node walkthrough</a></li>
+    <li><a href="#replication">File replication and alerts</a></li>
+    <li><a href="#troubleshooting">Troubleshooting and support</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <h1>DataReel Cluster Manager</h1>
+  <p>Administrator guide for DRCM 1.42, a high availability cluster manager for Linux servers.</p>
+  <div class="meta">
+    <span class="pill">Version 1.42</span>
+    <span class="pill">RHEL 10 &middot; 9 &middot; 8</span>
+    <span class="pill">UDP or TCP + TLS</span>
+    <span class="pill">Plain text copy: docs/drcm.txt</span>
+  </div>
+</header>
+
+<!-- 1 -->
+<section id="overview">
+  <h2>Overview and architecture</h2>
+  <p>The DataReel Cluster Manager (DRCM) builds high availability Linux server clusters. It manages system resources (crontabs, floating IP addresses, system services, applications and file systems) and fails them over automatically when one or more servers fail.</p>
+  <p>DRCM supports many cluster nodes in a non-hierarchical arrangement. Resources are spread across the nodes, and each resource can have backup nodes. A typical cluster is two servers of equal capacity, one primary and one backup, but DRCM scales past two nodes and across data centers in the same or different locations. In virtualized data centers, clustering VMs that run on different bare metal hosts protects services from the loss of a host.</p>
+  <h3>How it is built</h3>
+  <p>DRCM is a single C++ multithreaded daemon, <code>drcm_server</code>, built on the DataReel class library (threads, sockets, strings, logging). The bundled copy of the library in <code>include/</code> and <code>src/</code> is trimmed to the 16 components DRCM uses. Each node runs the same binary with the same <code>/etc/drcm</code> directory.</p>
+  <div class="grid2">
+    <div class="card"><h4>Server threads</h4><p>A UDP server thread answers keep alives and client commands. In TCP mode a TCP + TLS server thread serves the same authenticated frames. A log thread and a dedicated <code>sigwait()</code> signal thread run alongside.</p></div>
+    <div class="card"><h4>Resource threads</h4><p>One thread per resource type (crontabs, IP addresses, services, applications, file systems) starts, stops and watches its resources on the node's <code>*_check</code> interval.</p></div>
+    <div class="card"><h4>Keep alive</h4><p>Each node probes every other active node. After <code>dead_node_count</code> failed probes in a row, the node is declared dead and its backups take over its resources.</p></div>
+    <div class="card"><h4>Resource scripts</h4><p>Shell scripts in <code>/etc/drcm/resources</code> do the actual start, stop and watch work, so sites can add their own with the same arguments.</p></div>
+  </div>
+  <div class="diagram" role="img" aria-label="Two DRCM nodes exchanging authenticated keep alives, with an optional witness and a floating IP that moves to the surviving node">
+    <svg viewBox="0 0 720 210" width="720" xmlns="http://www.w3.org/2000/svg">
+      <rect class="boxa" x="20" y="40" width="210" height="110" rx="10"/>
+      <text x="40" y="68" font-weight="600">cmnode1 (primary)</text>
+      <text class="muted" x="40" y="92">drcm_server</text>
+      <text class="muted" x="40" y="112">/etc/drcm (identical)</text>
+      <text class="muted" x="40" y="132">floating IP, services, crons</text>
+      <rect class="box" x="490" y="40" width="210" height="110" rx="10"/>
+      <text x="510" y="68" font-weight="600">cmnode2 (backup)</text>
+      <text class="muted" x="510" y="92">drcm_server</text>
+      <text class="muted" x="510" y="112">/etc/drcm (identical)</text>
+      <text class="muted" x="510" y="132">takes over on failure</text>
+      <path class="line" d="M230 80 H490"/>
+      <path class="line" d="M490 110 H230"/>
+      <text x="268" y="72">keep alive (v2 HMAC frames)</text>
+      <text class="muted" x="270" y="130">UDP same subnet, or TCP + TLS</text>
+      <rect class="box" x="290" y="168" width="140" height="34" rx="8"/>
+      <text x="318" y="190">witness (optional)</text>
+      <path class="line dash" d="M125 150 V185 H290"/>
+      <path class="line dash" d="M595 150 V185 H430"/>
+      <text class="muted" x="20" y="24">users connect to the floating IP, which moves to whichever node owns it</text>
+    </svg>
+  </div>
+  <p>Conventions in this guide: commands with a <code>$</code> prompt run as a user or service account, commands with <code>#</code> run as root, and <code>...</code> in a config example means content left out.</p>
+</section>
+
+<!-- 2 -->
+<section id="platforms">
+  <h2>Platform support</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Platform</th><th>Status</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>RHEL 10</td><td><span class="badge ok">Supported</span></td><td>Native systemd unit, NetworkManager, firewalld, OpenSSL 3. RPM spec <code>drcm_rhel10.spec</code>.</td></tr>
+      <tr><td>RHEL 9</td><td><span class="badge ok">Supported</span></td><td>Native systemd unit, NetworkManager, firewalld, OpenSSL 3. RPM spec <code>drcm_rhel9.spec</code>.</td></tr>
+      <tr><td>RHEL 8</td><td><span class="badge warn">Best effort, legacy</span></td><td>RPMs are still built (<code>drcm_rhel8.spec</code>). NetworkManager only; convert any network-scripts systems.</td></tr>
+      <tr><td>RHEL 6 and RHEL 7</td><td><span class="badge bad">No longer supported</span></td><td>1.37 was the last release for them. RHEL 7's OpenSSL 1.0.2 has no TLS 1.3, and both are past end of maintenance.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout bad"><p><strong>RHEL 6 and RHEL 7 are no longer supported.</strong> Their RPM specs, build scripts and the SysV init script were removed in 1.42. The legacy network-scripts notes later in the README are kept only to help convert old clusters.</p></div>
+  <p>RHEL compatible rebuilds (Rocky Linux, AlmaLinux, Oracle Linux) of the same major versions follow the same rules.</p>
+</section>
+
+<!-- 3 -->
+<section id="install">
+  <h2>Install and build</h2>
+  <p>Plan the cluster before installing: the number of nodes, which node runs which crons, which floating IPs and services are needed, which file systems each node mounts, which applications run where, and SSH keys between nodes for file sync and automation.</p>
+
+  <h3>RPM install</h3>
+  <p>Prebuilt RPMs for RHEL 8, 9 and 10 are on the downloads page, <a href="https://datareel.com/downloads/drcm/">datareel.com/downloads/drcm</a>.</p>
+<pre><code>$ sudo dnf -y install ./drcm_server-1.42-1.el9.x86_64.x86_64.rpm
+$ rpm -ql drcm_server          # files
+$ rpm -qc drcm_server          # configs
+$ sudo dnf -y remove drcm_server</code></pre>
+
+  <h3>Build your own RPM</h3>
+  <p>The build needs <code>gcc-c++</code>, <code>make</code>, <code>rpm-build</code> and <code>openssl-devel</code>.</p>
+<pre><code>$ cd $HOME; mkdir -pv git; cd $HOME/git
+$ wget https://datareel.com/downloads/drcm/ha-cluster-manager-1.42.tar.gz
+$ tar xzf ha-cluster-manager-1.42.tar.gz
+$ mv ha-cluster-manager-1.42 ha-cluster-manager
+$ cd $HOME/git/ha-cluster-manager/rpm_builder
+$ ./make_rhel10_rpm.sh         # or make_rhel9_rpm.sh, make_rhel8_rpm.sh
+$ sudo dnf -y install $HOME/rpmbuild/RPMS/x86_64/drcm_server-1.42-1.el10.x86_64.x86_64.rpm</code></pre>
+
+  <h3>Build from source</h3>
+<pre><code>$ sudo dnf -y install gcc-c++ make openssl-devel
+$ cd ~/git/ha-cluster-manager/env
+$ source gnu_env.sh
+$ cd ~/git/ha-cluster-manager/drcm_server
+$ make                          # builds ../lib/libdatareel.a, then make -f makedrcm.mak
+$ sudo su root -c 'make install_root'</code></pre>
+  <ul>
+    <li><code>make</code> in <code>drcm_server</code> builds the bundled DataReel library once (<code>makelib.mak</code>) and then the server with <code>makedrcm.mak</code>.</li>
+    <li>The server links OpenSSL through <code>-lssl -lcrypto</code> (set in <code>env/linux.env</code>) for HMAC-SHA256 and TLS.</li>
+    <li><code>env/gnu_env.sh</code> exports hardening flags: <code>-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE</code>, linked with <code>-pie -Wl,-z,relro,-z,now</code> (PIE and full RELRO, the modern RHEL defaults).</li>
+    <li><code>make install_root</code> installs to <code>/usr/sbin/drcm_server</code> and the configuration tree to <code>/etc/drcm</code>.</li>
+  </ul>
+
+  <h3>systemd unit</h3>
+  <p>All supported targets use the native unit <code>systemd_init/drcm_server.service</code>, installed to <code>/usr/lib/systemd/system</code>:</p>
+<pre><code>[Service]
+Type=simple
+Environment=CFGFILE=/etc/drcm/cm.cfg
+EnvironmentFile=-/etc/sysconfig/drcm_server
+ExecStart=/usr/sbin/drcm_server --config-file=${CFGFILE} $ARGS
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=180
+Restart=on-failure</code></pre>
+  <p>DRCM stops its own resources on <code>SIGTERM</code>, so only the server process is signaled, resource stop scripts get up to 180 seconds, and logs go to the journal as well as the DRCM log. Set <code>CFGFILE</code> or <code>ARGS</code> in <code>/etc/sysconfig/drcm_server</code>.</p>
+  <div class="callout"><p>All nodes in a cluster must have identical <code>/etc/drcm</code> directories. Design the configuration on one node you treat as the entry point, then push <code>/etc/drcm</code> to every other node.</p></div>
+</section>
+
+<!-- 4 -->
+<section id="authkey">
+  <h2>Cluster auth keys</h2>
+  <p>Every node in a cluster uses the same 2048-byte random authkey. It keys the HMAC-SHA256 on every cluster message (see <a href="#security">Security model</a>). To create the key, or to replace it:</p>
+<pre><code># mkdir -pv /etc/drcm/.auth
+# chmod 700 /etc/drcm/.auth
+# dd if=/dev/urandom bs=1024 count=2 &gt; /etc/drcm/.auth/authkey
+# sha1sum /etc/drcm/.auth/authkey | cut -b1-40 &gt; /etc/drcm/.auth/authkey.sha1
+# chmod 600 /etc/drcm/.auth/authkey /etc/drcm/.auth/authkey.sha1</code></pre>
+  <ul>
+    <li><code>authkey.sha1</code> only fingerprints the key file at rest. The server checks that it holds a 40 character hex hash. It is not used to authenticate messages.</li>
+    <li>The server warns if either file can be read by other users. Keep them mode 600, owned by the cluster user.</li>
+    <li>Copy the <code>.auth</code> directory to every node over SSH. A node with a different key cannot talk to the cluster.</li>
+    <li>Scripts that query the cluster as another user (for example <code>watch_cluster.sh</code>) need read access to the key.</li>
+  </ul>
+</section>
+
+<!-- 5 -->
+<section id="config">
+  <h2>cm.cfg configuration reference</h2>
+  <p>The default configuration file is <code>/etc/drcm/cm.cfg</code>. If it does not exist, <code>--check-config</code> writes a template you can edit:</p>
+<pre><code># /usr/sbin/drcm_server --check-config
+# /usr/sbin/drcm_server --config-file=/tmp/test1.cfg --check-config
+# /usr/sbin/drcm_server --check-config | grep -i -E 'error|warn|fail|info'</code></pre>
+  <p>Always check the file after editing and before starting the server. <code>--check-config</code> warns about unknown settings, nodes missing <code>nodename</code>, <code>hostname</code> or <code>keep_alive_ip</code>, and duplicate node names. In TCP mode it also checks that the TLS files exist and that a witness is set when quorum is required.</p>
+  <p>The file has a <code>[CM_SERVER]</code> section, five resource sections and one <code>[CM_NODE]</code> section per node. Settings are matched by their full name and <code>#</code> starts a comment.</p>
+
+  <h3>[CM_SERVER] general settings</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Key</th><th>Default</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>udpport</code></td><td>53897</td><td>UDP port for keep alives and client commands.</td></tr>
+      <tr><td><code>tcpport</code></td><td>53897</td><td>TCP port for the TCP + TLS transport. It can equal <code>udpport</code>.</td></tr>
+      <tr><td><code>bind_to_keep_alive_ip</code></td><td>1</td><td>Listen only on this node's keep alive IP. Set 0 to listen on all interfaces.</td></tr>
+      <tr><td><code>dead_node_count</code></td><td></td><td>Failed keep alives in a row before a node is declared dead. Each node has its own count.</td></tr>
+      <tr><td><code>run_dir</code>, <code>log_dir</code>, <code>spool_dir</code></td><td>/var/run/drcm, /var/log/drcm, /var/spool/drcm</td><td>Process directories.</td></tr>
+      <tr><td><code>cluster_user</code>, <code>cluster_group</code></td><td>root</td><td>Account the server and resource scripts run as.</td></tr>
+      <tr><td><code>sudo_command</code></td><td>sudo su root -c</td><td>Prefix for privileged commands. Arguments are shell quoted.</td></tr>
+      <tr><td><code>bash_shell</code>, <code>bash_rc_file</code></td><td>/bin/bash, /root/.bashrc</td><td>Shell and rc file used by resource scripts.</td></tr>
+      <tr><td><code>logfile</code> (or <code>logfile_name</code>)</td><td>drcm.log</td><td>Log file name with no path; it is written in <code>log_dir</code>.</td></tr>
+      <tr><td><code>num_logs_to_keep</code>, <code>max_log_size</code></td><td>3, 5000000</td><td>Log rotation.</td></tr>
+      <tr><td><code>log_queue_size</code>, <code>log_queue_debug_size</code>, <code>log_queue_proc_size</code></td><td>2048, 4096, 255</td><td>Log queue sizes.</td></tr>
+      <tr><td><code>enable_logging</code>, <code>log_level</code></td><td>1, 5</td><td>Logging on/off and level 0 to 5.</td></tr>
+      <tr><td><code>debug</code>, <code>debug_level</code>, <code>verbose</code>, <code>verbose_level</code></td><td>off</td><td>Development and test output. Level 5 greatly increases log size.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>[CM_SERVER] transport, TLS, anti-replay and quorum (added in 1.42)</h3>
+  <p>Every key has a safe default, so a config without them runs exactly as before: UDP transport, no quorum.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Key</th><th>Default</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>cluster_transport</code></td><td>udp</td><td><code>udp</code> for same-subnet clusters or <code>tcp</code> for TLS over routed or internet links. Any other value is a config error.</td></tr>
+      <tr><td><code>tls_ca_file</code></td><td></td><td>Cluster CA certificate (PEM) used to verify peers. Required for <code>tcp</code>.</td></tr>
+      <tr><td><code>tls_cert_file</code></td><td></td><td>This node's certificate (PEM), signed by the cluster CA. Required for <code>tcp</code>.</td></tr>
+      <tr><td><code>tls_key_file</code></td><td></td><td>This node's private key (PEM). Required for <code>tcp</code>. Keep it mode 600.</td></tr>
+      <tr><td><code>tls_min_version</code></td><td>1.2</td><td>Lowest TLS version accepted: <code>1.2</code> or <code>1.3</code>.</td></tr>
+      <tr><td><code>replay_window_secs</code></td><td>0</td><td>0 = nonce and sequence checks only, no clock needed. A positive value also rejects frames whose timestamp is more than that many seconds from local time; use only with synchronized clocks (chrony).</td></tr>
+      <tr><td><code>quorum_required</code></td><td>0</td><td>1 = a node may take over a dead peer's resources only if it can reach the witness.</td></tr>
+      <tr><td><code>witness_endpoint</code></td><td></td><td>Witness host, or <code>host:port</code>. The witness is contacted on the cluster's standard port, so only the host part is used. Required when <code>quorum_required = 1</code>.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>[CM_NODE] settings</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>nodename</code></td><td>Any name you recognize the node by. Used in <code>nodename:resource</code> backup lists.</td></tr>
+      <tr><td><code>hostname</code></td><td>Fully qualified host name, matching <code>uname -n</code>.</td></tr>
+      <tr><td><code>keep_alive_ip</code></td><td>IPv4 address used for keep alives and cluster messages. In TCP mode the TLS connection goes to this address on <code>tcpport</code>.</td></tr>
+      <tr><td><code>node_is_active</code></td><td>0 takes the node out of the cluster; inactive nodes are not probed.</td></tr>
+      <tr><td><code>keep_services</code>, <code>keep_filesystems</code>, <code>keep_applications</code></td><td>1 leaves the node's own resources running when DRCM stops.</td></tr>
+      <tr><td><code>crontabs_check</code>, <code>ipaddrs_check</code>, <code>services_check</code>, <code>applications_check</code>, <code>filesystems_check</code></td><td>Seconds between checks for each resource type. <code>ipaddr_check</code> and the older spelling <code>ipapddrs_check</code> are also accepted.</td></tr>
+      <tr><td><code>node_crontabs</code>, <code>node_floating_ip_addrs</code>, <code>node_services</code>, <code>node_applications</code>, <code>node_filesystems</code></td><td>Comma separated resource nicknames this node runs as primary.</td></tr>
+      <tr><td><code>node_backup_crontabs</code>, <code>node_backup_floating_ip_addrs</code>, <code>node_backup_services</code>, <code>node_backup_applications</code>, <code>node_backup_filesystems</code></td><td>Resources this node takes over, as <code>nodename:nickname</code> pairs.</td></tr>
+      <tr><td><code>tls_peer_fingerprint</code></td><td>Optional SHA-256 fingerprint of this node's certificate. Peers connecting to this node over TLS reject any other certificate, even one signed by the cluster CA. Colons, spaces, case and a <code>sha256</code> prefix are ignored.</td></tr>
+      <tr><td><code>peer_endpoints</code></td><td>One or more <code>host:port</code> heartbeat paths. Parsed and validated in 1.42 and reserved for multi-path heartbeats; the transport currently uses <code>keep_alive_ip</code>.</td></tr>
+      <tr><td><code>floating_ip_provider</code></td><td>Parsed and reserved in 1.42. The floating IP method is chosen by the resource script in <code>[CM_IPADDRS]</code>, for example <code>aws_ipv4addr.sh</code>.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- 6 -->
+<section id="resources">
+  <h2>Managed resources and resource scripts</h2>
+  <p>Every node can run a global resource as primary or as backup. Each resource line in a global section is a CSV list that starts with a unique nickname.</p>
+<pre><code>[CM_CRONTABS]
+# nickname, template_file, install_location, resource_script
+system, /etc/drcm/crontabs/system_crons, /etc/cron.d, /etc/drcm/resources/crontab.sh
+apps2, /etc/drcm/crontabs/apps_package2, /etc/cron.d, /etc/drcm/resources/crontab.sh
+
+[CM_IPADDRS]
+# nickname, floating IP, netmask, interface, resource_script
+cmnodef, 192.168.122.180, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh
+
+[CM_SERVICES]
+# nickname, service_name, resource_script
+web, httpd, /etc/drcm/resources/service.sh
+
+[CM_APPLICATIONS]
+# nickname, user:group, start_program, stop_program[, ensure_script]
+ldm, ldm:users, ~/util/ldm_ensure.sh, ldmadmin stop, ~/util/ldm_ensure.sh
+
+[CM_FILESYSTEMS]
+# nickname, source, target, resource_script
+data, 192.168.122.1:/data, /data, /etc/drcm/resources/nfs.sh
+webshare, /192.168.122.225/users/web, /home/users/web, /etc/drcm/resources/cifs.sh</code></pre>
+
+  <h3>Resource scripts</h3>
+  <p>Scripts live in <code>/etc/drcm/resources</code> and take <code>start</code>, <code>stop</code> and <code>watch</code> actions. Custom scripts work if they accept the same arguments.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Script</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>crontab.sh</code></td><td>Installs or removes a crontab template in <code>/etc/cron.d</code>.</td></tr>
+      <tr><td><code>service.sh</code></td><td>Starts, stops, reloads and watches a systemd service; state comes from <code>systemctl is-active</code>.</td></tr>
+      <tr><td><code>nfs.sh</code></td><td>Mounts an NFS share; checks the mount with <code>findmnt</code> and remounts stale handles.</td></tr>
+      <tr><td><code>cifs.sh</code></td><td>Mounts a CIFS share with a private credentials file (the password is not on the command line).</td></tr>
+      <tr><td><code>ipv4addr_nmcli.sh</code></td><td>Default IPv4 floating IP: adds the address to an existing NetworkManager connection. Accepts a CIDR prefix or a dotted netmask.</td></tr>
+      <tr><td><code>ipv4addr_copy_nmcli.sh</code></td><td>Swaps per-node start and stop NetworkManager connection templates for complex layouts.</td></tr>
+      <tr><td><code>ipv6addr_nmcli.sh</code></td><td>IPv6 floating IP with a prefix length. New in 1.42, not yet tested on a live cluster.</td></tr>
+      <tr><td><code>aws_ipv4addr.sh</code></td><td>AWS floating IP: moves an Elastic IP or a VPC route-table VIP to the active instance.</td></tr>
+      <tr><td><code>ipv4addr.sh</code>, <code>ipv4addr_multi.sh</code>, <code>ipv4addr_copy_config.sh</code></td><td>Legacy network-scripts (ifcfg) methods for systems without NetworkManager.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Linking resources to nodes</h3>
+<pre><code>[CM_NODE]
+nodename = cmnode1
+...
+node_crontabs = user,system,apps1
+node_backup_crontabs = cmnode2:apps2
+node_floating_ip_addrs = cmnodef
+node_services = web
+node_filesystems = data,archive,webshare
+node_applications = ldm
+
+[CM_NODE]
+nodename = cmnode2
+...
+node_crontabs = apps2
+node_backup_crontabs = cmnode1:user,cmnode1:system
+node_backup_floating_ip_addrs = cmnode1:cmnodef
+node_services = web
+node_filesystems = data,archive,webshare
+node_applications = ldm</code></pre>
+
+  <h3>Applications</h3>
+  <p>Applications are programs outside the OS. DRCM runs them as the given <code>user:group</code> with that user's environment sourced, so programs on the user's PATH need no absolute path. Start and stop programs can be several commands separated by <code>;</code>. With an ensure script, DRCM uses it to watch the application.</p>
+<pre><code>ldm, ldm:users, ldmadmin start, ldmadmin stop
+ldm, ldm:users, ldmadmin clean; ldmadmin mkqueue; ldmadmin start, ldmadmin stop; ldmadmin delqueue
+ldm, ldm:users, ldmadmin start, ldmadmin stop, if [ -f ~/util/ldm_ensure.sh ]; then ~/util/ldm_ensure.sh; fi</code></pre>
+</section>
+
+<!-- 7 -->
+<section id="transports">
+  <h2>Transports: UDP and TCP with TLS</h2>
+  <div class="grid2">
+    <div class="card">
+      <h4>UDP (default)</h4>
+      <p><code>cluster_transport = udp</code>. For nodes on the same subnet or a trusted private network. Each keep alive and command is one authenticated datagram on <code>udpport</code>. No certificates needed.</p>
+    </div>
+    <div class="card">
+      <h4>TCP + TLS</h4>
+      <p><code>cluster_transport = tcp</code>. For failover over routed links or the internet: data center to cloud, cloud to cloud. The same authenticated frames run inside a mutually authenticated TLS 1.2+ connection on <code>tcpport</code>.</p>
+    </div>
+  </div>
+  <p>The <code>ping</code>, <code>rstats</code>, <code>cm_stat</code> and keep alive clients all use one transport-aware exchange, so every command works the same way in both modes. In TCP mode the UDP thread still starts (for local clients); peers are reached over TLS.</p>
+  <p>Open the matching ports in firewalld on every node, from every other node:</p>
+<pre><code># firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" port port="53897" protocol="udp" accept'
+# firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" port port="53897" protocol="tcp" accept'
+# firewall-cmd --reload
+# firewall-cmd --list-rich-rules</code></pre>
+  <p>Nodes must also be able to ping and SSH each other. firewalld allows ping by default; if it is blocked, remove the <code>echo-request</code> ICMP block. Direct iptables rules are legacy and not documented.</p>
+</section>
+
+<!-- 8 -->
+<section id="security">
+  <h2>Security model</h2>
+  <div class="callout ok"><p>These protections apply to <strong>UDP as well as TCP</strong>. TLS adds a second layer on top; it does not replace the frame authentication.</p></div>
+  <h3>Authenticated version 2 frames</h3>
+  <ul>
+    <li>Every cluster message is a version 2 frame: a 76-byte header (magic, version, command, flags, payload length, timestamp, sequence number, 16-byte nonce) plus the payload, with an HMAC-SHA256 over the whole frame keyed with the 2048-byte cluster authkey.</li>
+    <li>The HMAC is checked in constant time before any field is trusted, so a forged or changed command is rejected. This replaces the static SHA-1 hash older releases sent in the clear.</li>
+    <li>Payloads are capped at 65,507 bytes and stats replies at 64 KB, which bounds every allocation made from a length field.</li>
+  </ul>
+  <h3>Anti-replay</h3>
+  <ul>
+    <li>Each sender adds a monotonic sequence number and a random 16-byte nonce to every frame.</li>
+    <li>The receiver checks the nonce cache first: the last 256 nonces per peer are remembered, and an exact replay is rejected. This needs no clock.</li>
+    <li>On a TCP connection the sequence number must also increase strictly.</li>
+    <li>Optional: <code>replay_window_secs</code> rejects frames whose timestamp is outside the window. Use it only with synchronized clocks.</li>
+  </ul>
+  <h3>TLS (TCP transport)</h3>
+  <ul>
+    <li>TLS 1.2 is the floor (<code>tls_min_version = 1.3</code> raises it).</li>
+    <li>Mutual authentication: both ends present a certificate signed by the cluster CA and verify the peer against <code>tls_ca_file</code>. The handshake fails closed when verification fails.</li>
+    <li>Optional pinning with <code>tls_peer_fingerprint</code> rejects any certificate other than the pinned one.</li>
+    <li>Tested against a live server: plain TCP, no client certificate and a certificate from another CA are refused at the handshake, and a client with a valid cluster certificate still cannot forge a command because the HMAC check fails.</li>
+  </ul>
+  <h3>Hardening</h3>
+  <ul>
+    <li>Built with stack protector, <code>_FORTIFY_SOURCE=2</code>, PIE and full RELRO.</li>
+    <li>Signals are handled in a dedicated <code>sigwait()</code> thread, not in a signal handler.</li>
+    <li>Commands run through <code>su</code> or <code>sudo</code> are shell quoted.</li>
+    <li>Scripts use <code>StrictHostKeyChecking=accept-new</code> (override with <code>DRCM_SSH_OPTS</code>), mode 644 lock and time stamp files, and no world writable mount points.</li>
+    <li>The UDP protocol was fuzzed with 2000 malformed packets under AddressSanitizer and UBSan without a fault.</li>
+  </ul>
+  <div class="callout warn"><p><strong>Upgrade all nodes together.</strong> 1.42 speaks only v2 frames and does not talk to 1.41 or older nodes. Stop DRCM on every node, install 1.42 everywhere, then start the nodes again.</p></div>
+</section>
+
+<!-- 9 -->
+<section id="tls">
+  <h2>TCP and TLS setup</h2>
+  <p>The default is a private, self-signed cluster CA that signs one certificate per node. Externally issued certificates, such as Let's Encrypt via acme.sh, also work: DRCM only needs a CA file, a certificate and a key in PEM format.</p>
+  <h3>1. Create the cluster CA (once, on the entry point node)</h3>
+<pre><code># mkdir -pv /etc/drcm/tls &amp;&amp; chmod 700 /etc/drcm/tls &amp;&amp; cd /etc/drcm/tls
+# openssl req -x509 -newkey rsa:3072 -sha256 -days 3650 -nodes \
+    -keyout ca-key.pem -out ca.pem -subj "/CN=DRCM Cluster CA"</code></pre>
+  <p>Keep <code>ca-key.pem</code> offline or on one admin host. Nodes only need <code>ca.pem</code>.</p>
+  <h3>2. Issue a certificate for each node</h3>
+<pre><code># NODE=cmnode1.example.com
+# openssl req -newkey rsa:3072 -nodes -keyout ${NODE}-key.pem \
+    -out ${NODE}.csr -subj "/CN=${NODE}"
+# printf "subjectAltName=DNS:${NODE}\nextendedKeyUsage=serverAuth,clientAuth\n" &gt; ${NODE}.ext
+# openssl x509 -req -in ${NODE}.csr -CA ca.pem -CAkey ca-key.pem -CAcreateserial \
+    -days 825 -sha256 -extfile ${NODE}.ext -out ${NODE}.pem</code></pre>
+  <p>Each node uses its certificate for both roles (it serves and connects), so include both <code>serverAuth</code> and <code>clientAuth</code>. Install the files as <code>/etc/drcm/tls/node.pem</code> and <code>/etc/drcm/tls/node-key.pem</code> on that node, mode 600.</p>
+  <h3>3. Configure the cluster</h3>
+<pre><code>[CM_SERVER]
+...
+cluster_transport = tcp
+tcpport = 53897
+tls_ca_file = /etc/drcm/tls/ca.pem
+tls_cert_file = /etc/drcm/tls/node.pem
+tls_key_file = /etc/drcm/tls/node-key.pem
+tls_min_version = 1.2</code></pre>
+  <p>Because <code>/etc/drcm</code> is identical on all nodes, the paths are the same everywhere; only the file contents differ per node. Exclude <code>/etc/drcm/tls</code> from the rsync that copies <code>/etc/drcm</code> to the other nodes, or each node will get the entry point's certificate.</p>
+  <h3>4. Optional: pin node certificates</h3>
+<pre><code># openssl x509 -in cmnode2.example.com.pem -noout -fingerprint -sha256
+sha256 Fingerprint=4A:1F:...:9C
+
+[CM_NODE]
+nodename = cmnode2
+...
+tls_peer_fingerprint = 4A:1F:...:9C</code></pre>
+  <p>Remember to update the pin when a node certificate is renewed.</p>
+  <h3>Externally issued certificates</h3>
+  <p>With acme.sh or another ACME client, point <code>tls_cert_file</code> at the full chain, <code>tls_key_file</code> at the key and <code>tls_ca_file</code> at the issuing root. Any certificate that root signs will pass verification, so pin node fingerprints (and update the pins on renewal) when you use a public CA. Restart DRCM after a renewal so it loads the new files.</p>
+</section>
+
+<!-- 10 -->
+<section id="quorum">
+  <h2>Witness quorum</h2>
+  <p>In a two-node cluster a broken link between the nodes looks the same as a dead peer. Without help, both nodes could take the resources at once (split brain). A witness breaks the tie.</p>
+<pre><code>[CM_SERVER]
+...
+quorum_required = 1
+witness_endpoint = 10.0.0.9</code></pre>
+  <ul>
+    <li>Before taking over a dead peer's resources, the node pings the witness with an authenticated v2 frame over the configured transport.</li>
+    <li>Witness reachable: this node is in the majority (itself plus the witness) and fails over.</li>
+    <li>Witness unreachable: this node is probably the isolated one and stands down. An attacker who blocks the peer link cannot force a false failover.</li>
+    <li>Quorum required with no witness set fails closed (no takeover), and <code>--check-config</code> reports it.</li>
+  </ul>
+  <p>The witness is any reachable DRCM endpoint that answers the authenticated protocol: a small third VM running <code>drcm_server</code> with the same authkey (and, in TCP mode, a certificate from the cluster CA). Place it so that it shares a failure domain with neither node, for example a third availability zone or site.</p>
+</section>
+
+<!-- 11 -->
+<section id="running">
+  <h2>Running, monitoring, stats and logs</h2>
+  <p>After the configuration checks clean and <code>/etc/drcm</code> is mirrored to every node, start the server on each node:</p>
+<pre><code># systemctl start drcm_server
+# systemctl status drcm_server
+# systemctl enable drcm_server</code></pre>
+  <h3>Client commands</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Command</th><th>Shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>drcm_server --client --command=cm_stat</code></td><td>Formatted cluster status report for all nodes.</td></tr>
+      <tr><td><code>drcm_server --client --command=ping</code></td><td>Tests every active node. Add <code>-n"cmnode2"</code> for one node, <code>-c5</code> for a count.</td></tr>
+      <tr><td><code>drcm_server --client --command=rstats</code></td><td>Raw per-node stats for custom reports. <code>-n"nodename"</code> for one node.</td></tr>
+      <tr><td><code>drcm_server --client --command=printcfg</code></td><td>The loaded cluster configuration.</td></tr>
+      <tr><td><code>drcm_server --client</code></td><td>Interactive console; type <code>help</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Per-node report from raw stats:</p>
+<pre><code>for CMNODE in cmnode1 cmnode2 cmnode3 cmnode4
+do
+  echo $CMNODE
+  /usr/sbin/drcm_server --client --command=rstats | sed -n "/$CMNODE/,/$CMNODE/p" | grep -v $CMNODE
+  echo ""
+done</code></pre>
+  <h3>Logs</h3>
+<pre><code># tail -f /var/log/drcm/drcm.log
+# tail -f /var/log/drcm/ipv4addr_resource.log     # floating IP scripts (IPv4 and IPv6)
+# journalctl -u drcm_server -f</code></pre>
+  <h3>Testing failover and failback</h3>
+<pre><code># systemctl stop drcm_server       # on the primary: resources move to the backup
+# drcm_server --client --command=cm_stat    # from the backup
+# systemctl start drcm_server      # failback
+# drcm_server --client --command=cm_stat</code></pre>
+  <p>Other server options: <code>--version</code>, <code>--debug</code>, <code>--debug-level=1..5</code>, <code>--verbose</code>, <code>--log-file=</code>, <code>--log-level=</code>, <code>--log-file-clear</code>, <code>--log-disable</code>.</p>
+</section>
+
+<!-- 12 -->
+<section id="floating">
+  <h2>Floating IP failover per platform</h2>
+  <h3>On premises and VMs: NetworkManager</h3>
+  <p>NetworkManager (nmcli) is the method on RHEL 8, 9 and 10. The NetworkManager connection name must be the same as the device name, because the scripts update the connection and then reapply it to the device.</p>
+<pre><code>[CM_IPADDRS]
+cmnodef, 192.168.122.180, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh
+# VM and bare metal in one cluster: list both interface names
+cmnodef, 192.168.122.180, 255.255.255.0, 'ens192|eno8303', /etc/drcm/resources/ipv4addr_nmcli.sh</code></pre>
+  <p>Test on each node:</p>
+<pre><code># /etc/drcm/resources/ipv4addr_nmcli.sh 192.168.122.180 24 ens192 start
+# ip a
+# /etc/drcm/resources/ipv4addr_nmcli.sh 192.168.122.180 24 ens192 stop</code></pre>
+  <p>For complex layouts, <code>ipv4addr_copy_nmcli.sh</code> swaps per-node <code>&lt;host&gt;_start_backup_ip_&lt;dev&gt;</code> and <code>&lt;host&gt;_stop_backup_ip_&lt;dev&gt;</code> connection files kept in <code>/etc/drcm/my_cluster_conf</code>. The start file lists the floating IP; the stop file is the node's normal connection.</p>
+  <h3>IPv6 floating IPs</h3>
+<pre><code>cmnodef6, 2001:db8:122::180, 64, ens192, /etc/drcm/resources/ipv6addr_nmcli.sh
+# nmcli -g ipv6.method connection show ens192    # must not be "disabled" or "ignore"
+# nmcli con mod ens192 ipv6.method auto &amp;&amp; nmcli device reapply ens192</code></pre>
+  <p>Cluster traffic between nodes stays IPv4; only the floating IPs users connect to can be IPv6.</p>
+
+  <h3>AWS: Elastic IP and route-table VIP</h3>
+  <p>In AWS an interface alias does not move between instances. <code>aws_ipv4addr.sh</code> takes the same arguments as the other IPv4 scripts and moves the address through the EC2 API, using the AWS CLI v2 and instance metadata through IMDSv2 (falling back to IMDSv1).</p>
+  <div class="grid2">
+    <div class="card">
+      <h4>Elastic IP mode</h4>
+      <p>Pass the allocation id as the IP, or set <code>CM_AWS_EIP_ALLOC_ID</code>. <code>start</code> associates the EIP with this instance (<code>--allow-reassociation</code>); <code>watch</code> checks this instance holds it.</p>
+<pre><code>web, eipalloc-0abc1234, 32, eth0, /etc/drcm/resources/aws_ipv4addr.sh</code></pre>
+    </div>
+    <div class="card">
+      <h4>Route-table VIP mode</h4>
+      <p>Set <code>CM_AWS_ROUTE_TABLE_ID</code> and pass a VIP. <code>start</code> points the VIP's /32 route at this instance's primary ENI. Disable source/destination checking on the instances and add the VIP on the interface.</p>
+<pre><code>web, 10.0.12.50, 32, eth0, /etc/drcm/resources/aws_ipv4addr.sh</code></pre>
+    </div>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Variable</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>CM_AWS_EIP_ALLOC_ID</code></td><td>Elastic IP allocation id when the first argument is not one.</td></tr>
+      <tr><td><code>CM_AWS_ROUTE_TABLE_ID</code></td><td>VPC route table id; selects VIP route mode.</td></tr>
+      <tr><td><code>CM_AWS_REGION</code></td><td>Overrides the region read from instance metadata.</td></tr>
+      <tr><td><code>AWS_PROFILE</code>, <code>AWS_*</code></td><td>Standard AWS CLI credentials. An instance role is recommended.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Set the variables in the cluster user's <code>bash_rc_file</code>. The instance role needs <code>ec2:AssociateAddress</code>, <code>ec2:DisassociateAddress</code>, <code>ec2:DescribeAddresses</code>, <code>ec2:ReplaceRoute</code>, <code>ec2:CreateRoute</code> and <code>ec2:DescribeRouteTables</code>. Clusters that span AWS and another site should use <code>cluster_transport = tcp</code>.</p>
+  <h3>Legacy: network-scripts</h3>
+  <p><code>ipv4addr.sh</code>, <code>ipv4addr_multi.sh</code>, <code>ipv4addr_copy_config.sh</code> and the <code>ifcfg-eth0_N</code> templates are for systems without NetworkManager only. See README.txt for the conversion notes.</p>
+</section>
+
+<!-- 13 -->
+<section id="tools">
+  <h2>Setup and migration tools</h2>
+  <h3>tools/migrate_cfg.py</h3>
+  <p>Migrates a pre-1.42 <code>cm.cfg</code>. It is additive: the file is copied through unchanged and the new keys are inserted at the end of <code>[CM_SERVER]</code>. It is idempotent: a file that already has <code>cluster_transport</code> is left alone (apart from <code>--tcp</code> switching the transport). By default the cluster stays on UDP.</p>
+<pre><code>$ python3 tools/migrate_cfg.py /etc/drcm/cm.cfg -o /tmp/cm.cfg.new
+$ python3 tools/migrate_cfg.py /etc/drcm/cm.cfg -o /tmp/cm.cfg.new \
+      --tcp --quorum --witness 10.0.0.9 --tls-min 1.3
+$ diff /etc/drcm/cm.cfg /tmp/cm.cfg.new
+# drcm_server --config-file=/tmp/cm.cfg.new --check-config</code></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Option</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td><code>-o FILE</code></td><td>Write to FILE instead of stdout.</td></tr>
+      <tr><td><code>--tcp</code></td><td>Switch to TCP + TLS and write the TLS keys.</td></tr>
+      <tr><td><code>--ca</code>, <code>--cert</code>, <code>--key</code></td><td>TLS paths (default <code>/etc/drcm/tls/ca.pem</code>, <code>node.pem</code>, <code>node-key.pem</code>).</td></tr>
+      <tr><td><code>--tls-min 1.2|1.3</code></td><td>Minimum TLS version.</td></tr>
+      <tr><td><code>--replay-window SECONDS</code></td><td>Timestamp window (default 0, nonce and sequence only).</td></tr>
+      <tr><td><code>--quorum</code>, <code>--witness HOST[:PORT]</code></td><td>Turn on witness quorum.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>tools/drcm_gui.py</h3>
+  <p>A tkinter GUI (Python standard library only) with two tabs: <strong>New cluster</strong> builds a cm.cfg from cluster settings, nodes, services, transport, TLS and quorum; <strong>Migrate</strong> runs <code>migrate_cfg.py</code> on an existing file. The config generator is a pure function, so it can be checked without a display:</p>
+<pre><code>$ sudo dnf -y install python3-tkinter
+$ python3 tools/drcm_gui.py              # GUI
+$ python3 tools/drcm_gui.py --selftest   # headless check</code></pre>
+  <p>Always run <code>--check-config</code> on a generated file before you use it.</p>
+</section>
+
+<!-- 14 -->
+<section id="walkthrough">
+  <h2>Two-node cluster walkthrough</h2>
+  <p>Based on <code>etc/cm_2_node_example.cfg</code>: <code>cmnode1</code> (192.168.122.111) is primary for the web and ldm floating IPs, httpd and the <code>data</code> NFS mount; <code>cmnode2</code> (192.168.122.112) backs them up and is primary for <code>archive</code>.</p>
+  <ol>
+    <li><strong>Install</strong> DRCM on both nodes (RPM or source build).</li>
+    <li><strong>Auth key:</strong> create <code>/etc/drcm/.auth/authkey</code> on cmnode1 as shown in <a href="#authkey">Cluster auth keys</a>.</li>
+    <li><strong>Config:</strong> copy the example and edit host names, IPs and resources.
+<pre><code># cp /etc/drcm/cm_2_node_example.cfg /etc/drcm/cm.cfg
+# vi /etc/drcm/cm.cfg</code></pre></li>
+    <li><strong>Turn off debug</strong> for production: the example sets <code>debug = 1</code> and <code>debug_level = 5</code>.</li>
+    <li><strong>Check it:</strong>
+<pre><code># drcm_server --check-config | grep -i -E 'error|warn|fail|info'</code></pre></li>
+    <li><strong>Firewall:</strong> on each node allow UDP and TCP 53897 and SSH from the other node.</li>
+    <li><strong>Copy /etc/drcm</strong> to cmnode2, dry run first:
+<pre><code># rsync -av --force --stats --progress -n /etc/drcm 192.168.122.112:/etc/.
+# rsync -av --force --stats --progress /etc/drcm 192.168.122.112:/etc/.</code></pre></li>
+    <li><strong>Test the floating IPs</strong> on each node with the resource script <code>start</code> and <code>stop</code> actions.</li>
+    <li><strong>Start</strong> <code>drcm_server</code> on both nodes and check <code>cm_stat</code>.</li>
+    <li><strong>Fail over:</strong> stop DRCM on cmnode1 and watch cmnode2 take the web IP, httpd and the backup resources. Start cmnode1 again to fail back.</li>
+    <li><strong>Optional hardening</strong> for nodes in different sites: run <code>migrate_cfg.py --tcp --quorum --witness HOST</code>, install TLS files, and add a witness VM.</li>
+    <li><strong>Enable</strong> the service on both nodes: <code>systemctl enable drcm_server</code>.</li>
+  </ol>
+</section>
+
+<!-- 15 -->
+<section id="replication">
+  <h2>File replication and alerts</h2>
+  <h3>Two-way file replication</h3>
+  <p><code>/etc/drcm/file_system_sync</code> holds rsync over SSH scripts that mirror file systems from a primary to a backup node, and back again after a failback. Configure the nodes in <code>/etc/drcm/my_cluster_conf/my_cluster_info.sh</code> (<code>CLUSTER_NAME</code>, <code>BACKUP_USER</code>, <code>PRIMARY_FILESYSTEMS_IP</code>, <code>BACKUP_FILESYSTEMS_IP</code> and the matching <code>*_ETH</code> settings), list directories in the <code>*sync_list.sh</code> files with <code>RsyncMirror</code> (exact mirror) or <code>RsyncCopy</code> (keep deleted files), and run the sync scripts from the backup user's crontab: every 5 minutes on the primary, every minute on the backup. The backup user needs SSH key access between the nodes and write access to <code>my_cluster_conf</code>. <code>/etc/drcm/utils/manual_fs_failover.sh</code> tests a failover.</p>
+<pre><code>$ crontab -e      # primary
+*/5 * * * *  /etc/drcm/file_system_sync/sync_testfs.sh &gt; /dev/null 2&gt;&amp;1
+$ crontab -e      # backup
+* * * * * /etc/drcm/file_system_sync/sync_testfs.sh &gt; /dev/null 2&gt;&amp;1</code></pre>
+  <h3>Cluster alerts</h3>
+<pre><code>00 * * * * /etc/drcm/utils/watch_cluster.sh &gt; /dev/null 2&gt;&amp;1     # root crontab
+# vi /etc/drcm/my_cluster_conf/cm_alert_list.sh
+export EMAILlist="root,name@example.com"
+export TEXTlist="555-555-5555@vtext.com"</code></pre>
+  <p>Alerts are limited to one every 4 hours after the first message. Nodes need a working postfix relay (<code>relayhost</code> in <code>/etc/postfix/main.cf</code>). Other scripts can send alerts by sourcing <code>/etc/drcm/utils/send_alert.sh</code> and calling <code>send_alert "subject" "body"</code>.</p>
+</section>
+
+<!-- 16 -->
+<section id="troubleshooting">
+  <h2>Troubleshooting and support</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Symptom</th><th>Check</th></tr></thead>
+    <tbody>
+      <tr><td>Nodes see each other as dead after an upgrade</td><td>All nodes must run 1.42. Older nodes do not speak v2 frames.</td></tr>
+      <tr><td>Ping fails, frames rejected</td><td>Same <code>authkey</code> on every node (compare <code>authkey.sha1</code>), firewalld rules for the UDP/TCP ports, correct <code>keep_alive_ip</code>, <code>bind_to_keep_alive_ip</code>.</td></tr>
+      <tr><td>Replay rejections with <code>replay_window_secs</code> set</td><td>Clocks drifted. Fix chrony, or set the window back to 0.</td></tr>
+      <tr><td>TCP mode will not start</td><td><code>--check-config</code> reports missing TLS files. Check paths and modes, and that the key matches the certificate.</td></tr>
+      <tr><td>TLS handshake fails</td><td>Certificate not signed by <code>tls_ca_file</code>, expired, missing <code>clientAuth</code>/<code>serverAuth</code>, or a stale <code>tls_peer_fingerprint</code> after renewal.</td></tr>
+      <tr><td>No failover with quorum on</td><td>The node cannot reach <code>witness_endpoint</code>. Ping the witness and check its authkey and certificate.</td></tr>
+      <tr><td>Floating IP does not come up</td><td>NetworkManager connection name must equal the device name; check <code>/var/log/drcm/ipv4addr_resource.log</code>; run the script by hand with <code>start</code>.</td></tr>
+      <tr><td>AWS address does not move</td><td>AWS CLI v2 installed, instance role permissions, IMDS reachable, correct allocation id or route table id, source/destination check off for VIP mode.</td></tr>
+      <tr><td>Very large logs</td><td>Set <code>debug = 0</code> and lower <code>log_level</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Support</h3>
+  <ul>
+    <li>Product page and online docs: <a href="https://datareel.com/info_drcm.php">datareel.com/info_drcm.php</a></li>
+    <li>Source code and downloads: <a href="https://datareel.com/downloads/drcm/">datareel.com/downloads/drcm</a></li>
+    <li>Questions and bug reports: <a href="https://datareel.com/contact.php">datareel.com/contact.php</a></li>
+    <li>Release notes: <code>CHANGELOG.md</code> in the source distribution.</li>
+  </ul>
+  <footer>DataReel Cluster Manager 1.42 &middot; Copyright &copy; DataReel Software Development &middot; GNU General Public License.</footer>
+</section>
+</main>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var KEY = "drcm-theme";
+  var label = document.getElementById("themeLabel");
+
+  function systemDark() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function current() {
+    var t = root.getAttribute("data-theme");
+    if (t === "light" || t === "dark") return t;
+    return systemDark() ? "dark" : "light";
+  }
+  function show() { label.textContent = current() === "dark" ? "Dark" : "Light"; }
+
+  var saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) { saved = null; }
+  if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+  show();
+
+  document.getElementById("themeToggle").addEventListener("click", function () {
+    var next = current() === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem(KEY, next); } catch (e) { /* storage blocked */ }
+    show();
+  });
+  if (window.matchMedia) {
+    try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", show); } catch (e) { /* old browsers */ }
+  }
+
+  // Mobile navigation drawer
+  var navBtn = document.getElementById("navToggle");
+  navBtn.addEventListener("click", function () {
+    var open = document.body.classList.toggle("nav-open");
+    navBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+
+  // Highlight the section in view
+  var links = document.querySelectorAll("nav.rail a");
+  links.forEach(function (a) {
+    a.addEventListener("click", function () {
+      document.body.classList.remove("nav-open");
+      navBtn.setAttribute("aria-expanded", "false");
+    });
+  });
+  if ("IntersectionObserver" in window) {
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          links.forEach(function (a) { a.classList.remove("active"); });
+          var a = byId[e.target.id];
+          if (a) a.classList.add("active");
+        }
+      });
+    }, { rootMargin: "-70px 0px -65% 0px" });
+    document.querySelectorAll("main section").forEach(function (s) { io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>

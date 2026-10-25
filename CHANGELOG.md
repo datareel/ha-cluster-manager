@@ -5,6 +5,21 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+### Added
+- Phase 5 documentation for the 1.42 release. `docs/drcm.html` is a
+  new, self-contained administrator guide with light and dark themes
+  (follows the system setting, with a toggle that is remembered), a
+  sticky section rail and a layout that works on phones. It covers the
+  architecture, platform support (RHEL 10 and 9 supported, RHEL 8 best
+  effort, RHEL 6 and 7 no longer supported), install and build, the
+  cluster authkey, a full `cm.cfg` reference including the 1.42
+  transport, TLS, anti-replay and quorum keys, resource scripts, UDP
+  versus TCP + TLS, the security model, TLS certificate setup, witness
+  quorum, monitoring and logs, floating IP failover including AWS
+  Elastic IP and route-table VIP modes, `migrate_cfg.py` and
+  `drcm_gui.py`, a two-node walkthrough and troubleshooting.
+- `docs/drcm.txt`: the same guide in plain text.
+
 ## [1.42] - 2026-10-25
 
 ### Upgrading

@@ -1,0 +1,896 @@
+DataReel Cluster Manager (DRCM) 1.42 Administrator Guide
+Copyright (c) DataReel Software Development
+
+Plain text companion of docs/drcm.html. README.txt and CHANGELOG.md in
+the source distribution have the full history and legacy notes.
+
+Online docs:              https://datareel.com/info_drcm.php
+Source code and downloads: https://datareel.com/downloads/drcm/
+Support:                  https://datareel.com/contact.php
+
+Platforms: RHEL 10 and 9 supported, RHEL 8 best effort (legacy),
+RHEL 6 and 7 no longer supported.
+
+Contents:
+--------
+  1. Overview and architecture
+  2. Platform support
+  3. Install and build
+  4. Cluster auth keys
+  5. cm.cfg configuration reference
+  6. Managed resources and resource scripts
+  7. Transports: UDP and TCP with TLS
+  8. Security model
+  9. TCP and TLS setup
+  10. Witness quorum
+  11. Running, monitoring, stats and logs
+  12. Floating IP failover per platform
+  13. Setup and migration tools
+  14. Two-node cluster walkthrough
+  15. File replication and alerts
+  16. Troubleshooting and support
+
+1. Overview and architecture
+----------------------------
+The DataReel Cluster Manager (DRCM) builds high availability Linux
+server clusters. It manages system resources (crontabs, floating IP
+addresses, system services, applications and file systems) and fails
+them over automatically when one or more servers fail.
+
+DRCM supports many cluster nodes in a non-hierarchical arrangement.
+Resources are spread across the nodes, and each resource can have backup
+nodes. A typical cluster is two servers of equal capacity, one primary
+and one backup, but DRCM scales past two nodes and across data centers
+in the same or different locations. In virtualized data centers,
+clustering VMs that run on different bare metal hosts protects services
+from the loss of a host.
+
+How it is built:
+
+DRCM is a single C++ multithreaded daemon, drcm_server, built on the
+DataReel class library (threads, sockets, strings, logging). The bundled
+copy of the library in include/ and src/ is trimmed to the 16 components
+DRCM uses. Each node runs the same binary with the same /etc/drcm
+directory.
+
+Server threads:
+
+A UDP server thread answers keep alives and client commands. In TCP mode
+a TCP + TLS server thread serves the same authenticated frames. A log
+thread and a dedicated sigwait() signal thread run alongside.
+
+Resource threads:
+
+One thread per resource type (crontabs, IP addresses, services,
+applications, file systems) starts, stops and watches its resources on
+the node's *_check interval.
+
+Keep alive:
+
+Each node probes every other active node. After dead_node_count failed
+probes in a row, the node is declared dead and its backups take over its
+resources.
+
+Resource scripts:
+
+Shell scripts in /etc/drcm/resources do the actual start, stop and watch
+work, so sites can add their own with the same arguments.
+
+Conventions in this guide: commands with a $ prompt run as a user or
+service account, commands with # run as root, and ... in a config
+example means content left out.
+
+2. Platform support
+-------------------
+  RHEL 10
+      Status: Supported
+      Notes: Native systemd unit, NetworkManager, firewalld, OpenSSL 3.
+      RPM spec drcm_rhel10.spec.
+  RHEL 9
+      Status: Supported
+      Notes: Native systemd unit, NetworkManager, firewalld, OpenSSL 3.
+      RPM spec drcm_rhel9.spec.
+  RHEL 8
+      Status: Best effort, legacy
+      Notes: RPMs are still built (drcm_rhel8.spec). NetworkManager
+      only; convert any network-scripts systems.
+  RHEL 6 and RHEL 7
+      Status: No longer supported
+      Notes: 1.37 was the last release for them. RHEL 7's OpenSSL 1.0.2
+      has no TLS 1.3, and both are past end of maintenance.
+
+RHEL 6 and RHEL 7 are no longer supported. Their RPM specs, build
+scripts and the SysV init script were removed in 1.42. The legacy
+network-scripts notes later in the README are kept only to help convert
+old clusters.
+
+RHEL compatible rebuilds (Rocky Linux, AlmaLinux, Oracle Linux) of the
+same major versions follow the same rules.
+
+3. Install and build
+--------------------
+Plan the cluster before installing: the number of nodes, which node runs
+which crons, which floating IPs and services are needed, which file
+systems each node mounts, which applications run where, and SSH keys
+between nodes for file sync and automation.
+
+RPM install:
+
+Prebuilt RPMs for RHEL 8, 9 and 10 are on the downloads page,
+datareel.com/downloads/drcm.
+
+    $ sudo dnf -y install ./drcm_server-1.42-1.el9.x86_64.x86_64.rpm
+    $ rpm -ql drcm_server          # files
+    $ rpm -qc drcm_server          # configs
+    $ sudo dnf -y remove drcm_server
+
+Build your own RPM:
+
+The build needs gcc-c++, make, rpm-build and openssl-devel.
+
+    $ cd $HOME; mkdir -pv git; cd $HOME/git
+    $ wget https://datareel.com/downloads/drcm/ha-cluster-manager-1.42.tar.gz
+    $ tar xzf ha-cluster-manager-1.42.tar.gz
+    $ mv ha-cluster-manager-1.42 ha-cluster-manager
+    $ cd $HOME/git/ha-cluster-manager/rpm_builder
+    $ ./make_rhel10_rpm.sh         # or make_rhel9_rpm.sh, make_rhel8_rpm.sh
+    $ sudo dnf -y install $HOME/rpmbuild/RPMS/x86_64/drcm_server-1.42-1.el10.x86_64.x86_64.rpm
+
+Build from source:
+
+    $ sudo dnf -y install gcc-c++ make openssl-devel
+    $ cd ~/git/ha-cluster-manager/env
+    $ source gnu_env.sh
+    $ cd ~/git/ha-cluster-manager/drcm_server
+    $ make                          # builds ../lib/libdatareel.a, then make -f makedrcm.mak
+    $ sudo su root -c 'make install_root'
+
+* make in drcm_server builds the bundled DataReel library once
+  (makelib.mak) and then the server with makedrcm.mak.
+* The server links OpenSSL through -lssl -lcrypto (set in env/linux.env)
+  for HMAC-SHA256 and TLS.
+* env/gnu_env.sh exports hardening flags: -fstack-protector-strong
+  -D_FORTIFY_SOURCE=2 -fPIE, linked with -pie -Wl,-z,relro,-z,now (PIE
+  and full RELRO, the modern RHEL defaults).
+* make install_root installs to /usr/sbin/drcm_server and the
+  configuration tree to /etc/drcm.
+
+systemd unit:
+
+All supported targets use the native unit
+systemd_init/drcm_server.service, installed to /usr/lib/systemd/system:
+
+    [Service]
+    Type=simple
+    Environment=CFGFILE=/etc/drcm/cm.cfg
+    EnvironmentFile=-/etc/sysconfig/drcm_server
+    ExecStart=/usr/sbin/drcm_server --config-file=${CFGFILE} $ARGS
+    KillMode=process
+    KillSignal=SIGTERM
+    TimeoutStopSec=180
+    Restart=on-failure
+
+DRCM stops its own resources on SIGTERM, so only the server process is
+signaled, resource stop scripts get up to 180 seconds, and logs go to
+the journal as well as the DRCM log. Set CFGFILE or ARGS in
+/etc/sysconfig/drcm_server.
+
+All nodes in a cluster must have identical /etc/drcm directories. Design
+the configuration on one node you treat as the entry point, then push
+/etc/drcm to every other node.
+
+4. Cluster auth keys
+--------------------
+Every node in a cluster uses the same 2048-byte random authkey. It keys
+the HMAC-SHA256 on every cluster message (see Security model). To create
+the key, or to replace it:
+
+    # mkdir -pv /etc/drcm/.auth
+    # chmod 700 /etc/drcm/.auth
+    # dd if=/dev/urandom bs=1024 count=2 > /etc/drcm/.auth/authkey
+    # sha1sum /etc/drcm/.auth/authkey | cut -b1-40 > /etc/drcm/.auth/authkey.sha1
+    # chmod 600 /etc/drcm/.auth/authkey /etc/drcm/.auth/authkey.sha1
+
+* authkey.sha1 only fingerprints the key file at rest. The server checks
+  that it holds a 40 character hex hash. It is not used to authenticate
+  messages.
+* The server warns if either file can be read by other users. Keep them
+  mode 600, owned by the cluster user.
+* Copy the .auth directory to every node over SSH. A node with a
+  different key cannot talk to the cluster.
+* Scripts that query the cluster as another user (for example
+  watch_cluster.sh) need read access to the key.
+
+5. cm.cfg configuration reference
+---------------------------------
+The default configuration file is /etc/drcm/cm.cfg. If it does not
+exist, --check-config writes a template you can edit:
+
+    # /usr/sbin/drcm_server --check-config
+    # /usr/sbin/drcm_server --config-file=/tmp/test1.cfg --check-config
+    # /usr/sbin/drcm_server --check-config | grep -i -E 'error|warn|fail|info'
+
+Always check the file after editing and before starting the server.
+--check-config warns about unknown settings, nodes missing nodename,
+hostname or keep_alive_ip, and duplicate node names. In TCP mode it also
+checks that the TLS files exist and that a witness is set when quorum is
+required.
+
+The file has a [CM_SERVER] section, five resource sections and one
+[CM_NODE] section per node. Settings are matched by their full name and
+# starts a comment.
+
+[CM_SERVER] general settings:
+
+  udpport
+      Default: 53897
+      Meaning: UDP port for keep alives and client commands.
+  tcpport
+      Default: 53897
+      Meaning: TCP port for the TCP + TLS transport. It can equal
+      udpport.
+  bind_to_keep_alive_ip
+      Default: 1
+      Meaning: Listen only on this node's keep alive IP. Set 0 to listen
+      on all interfaces.
+  dead_node_count
+      Meaning: Failed keep alives in a row before a node is declared
+      dead. Each node has its own count.
+  run_dir, log_dir, spool_dir
+      Default: /var/run/drcm, /var/log/drcm, /var/spool/drcm
+      Meaning: Process directories.
+  cluster_user, cluster_group
+      Default: root
+      Meaning: Account the server and resource scripts run as.
+  sudo_command
+      Default: sudo su root -c
+      Meaning: Prefix for privileged commands. Arguments are shell
+      quoted.
+  bash_shell, bash_rc_file
+      Default: /bin/bash, /root/.bashrc
+      Meaning: Shell and rc file used by resource scripts.
+  logfile (or logfile_name)
+      Default: drcm.log
+      Meaning: Log file name with no path; it is written in log_dir.
+  num_logs_to_keep, max_log_size
+      Default: 3, 5000000
+      Meaning: Log rotation.
+  log_queue_size, log_queue_debug_size, log_queue_proc_size
+      Default: 2048, 4096, 255
+      Meaning: Log queue sizes.
+  enable_logging, log_level
+      Default: 1, 5
+      Meaning: Logging on/off and level 0 to 5.
+  debug, debug_level, verbose, verbose_level
+      Default: off
+      Meaning: Development and test output. Level 5 greatly increases
+      log size.
+
+[CM_SERVER] transport, TLS, anti-replay and quorum (added in 1.42):
+
+Every key has a safe default, so a config without them runs exactly as
+before: UDP transport, no quorum.
+
+  cluster_transport
+      Default: udp
+      Meaning: udp for same-subnet clusters or tcp for TLS over routed
+      or internet links. Any other value is a config error.
+  tls_ca_file
+      Meaning: Cluster CA certificate (PEM) used to verify peers.
+      Required for tcp.
+  tls_cert_file
+      Meaning: This node's certificate (PEM), signed by the cluster CA.
+      Required for tcp.
+  tls_key_file
+      Meaning: This node's private key (PEM). Required for tcp. Keep it
+      mode 600.
+  tls_min_version
+      Default: 1.2
+      Meaning: Lowest TLS version accepted: 1.2 or 1.3.
+  replay_window_secs
+      Default: 0
+      Meaning: 0 = nonce and sequence checks only, no clock needed. A
+      positive value also rejects frames whose timestamp is more than
+      that many seconds from local time; use only with synchronized
+      clocks (chrony).
+  quorum_required
+      Default: 0
+      Meaning: 1 = a node may take over a dead peer's resources only if
+      it can reach the witness.
+  witness_endpoint
+      Meaning: Witness host, or host:port. The witness is contacted on
+      the cluster's standard port, so only the host part is used.
+      Required when quorum_required = 1.
+
+[CM_NODE] settings:
+
+  nodename
+      Any name you recognize the node by. Used in nodename:resource
+      backup lists.
+  hostname
+      Fully qualified host name, matching uname -n.
+  keep_alive_ip
+      IPv4 address used for keep alives and cluster messages. In TCP
+      mode the TLS connection goes to this address on tcpport.
+  node_is_active
+      0 takes the node out of the cluster; inactive nodes are not
+      probed.
+  keep_services, keep_filesystems, keep_applications
+      1 leaves the node's own resources running when DRCM stops.
+  crontabs_check, ipaddrs_check, services_check, applications_check,
+  filesystems_check
+      Seconds between checks for each resource type. ipaddr_check and
+      the older spelling ipapddrs_check are also accepted.
+  node_crontabs, node_floating_ip_addrs, node_services,
+  node_applications, node_filesystems
+      Comma separated resource nicknames this node runs as primary.
+  node_backup_crontabs, node_backup_floating_ip_addrs,
+  node_backup_services, node_backup_applications,
+  node_backup_filesystems
+      Resources this node takes over, as nodename:nickname pairs.
+  tls_peer_fingerprint
+      Optional SHA-256 fingerprint of this node's certificate. Peers
+      connecting to this node over TLS reject any other certificate,
+      even one signed by the cluster CA. Colons, spaces, case and a
+      sha256 prefix are ignored.
+  peer_endpoints
+      One or more host:port heartbeat paths. Parsed and validated in
+      1.42 and reserved for multi-path heartbeats; the transport
+      currently uses keep_alive_ip.
+  floating_ip_provider
+      Parsed and reserved in 1.42. The floating IP method is chosen by
+      the resource script in [CM_IPADDRS], for example aws_ipv4addr.sh.
+
+6. Managed resources and resource scripts
+-----------------------------------------
+Every node can run a global resource as primary or as backup. Each
+resource line in a global section is a CSV list that starts with a
+unique nickname.
+
+    [CM_CRONTABS]
+    # nickname, template_file, install_location, resource_script
+    system, /etc/drcm/crontabs/system_crons, /etc/cron.d, /etc/drcm/resources/crontab.sh
+    apps2, /etc/drcm/crontabs/apps_package2, /etc/cron.d, /etc/drcm/resources/crontab.sh
+
+    [CM_IPADDRS]
+    # nickname, floating IP, netmask, interface, resource_script
+    cmnodef, 192.168.122.180, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh
+
+    [CM_SERVICES]
+    # nickname, service_name, resource_script
+    web, httpd, /etc/drcm/resources/service.sh
+
+    [CM_APPLICATIONS]
+    # nickname, user:group, start_program, stop_program[, ensure_script]
+    ldm, ldm:users, ~/util/ldm_ensure.sh, ldmadmin stop, ~/util/ldm_ensure.sh
+
+    [CM_FILESYSTEMS]
+    # nickname, source, target, resource_script
+    data, 192.168.122.1:/data, /data, /etc/drcm/resources/nfs.sh
+    webshare, /192.168.122.225/users/web, /home/users/web, /etc/drcm/resources/cifs.sh
+
+Resource scripts:
+
+Scripts live in /etc/drcm/resources and take start, stop and watch
+actions. Custom scripts work if they accept the same arguments.
+
+  crontab.sh
+      Installs or removes a crontab template in /etc/cron.d.
+  service.sh
+      Starts, stops, reloads and watches a systemd service; state comes
+      from systemctl is-active.
+  nfs.sh
+      Mounts an NFS share; checks the mount with findmnt and remounts
+      stale handles.
+  cifs.sh
+      Mounts a CIFS share with a private credentials file (the password
+      is not on the command line).
+  ipv4addr_nmcli.sh
+      Default IPv4 floating IP: adds the address to an existing
+      NetworkManager connection. Accepts a CIDR prefix or a dotted
+      netmask.
+  ipv4addr_copy_nmcli.sh
+      Swaps per-node start and stop NetworkManager connection templates
+      for complex layouts.
+  ipv6addr_nmcli.sh
+      IPv6 floating IP with a prefix length. New in 1.42, not yet tested
+      on a live cluster.
+  aws_ipv4addr.sh
+      AWS floating IP: moves an Elastic IP or a VPC route-table VIP to
+      the active instance.
+  ipv4addr.sh, ipv4addr_multi.sh, ipv4addr_copy_config.sh
+      Legacy network-scripts (ifcfg) methods for systems without
+      NetworkManager.
+
+Linking resources to nodes:
+
+    [CM_NODE]
+    nodename = cmnode1
+    ...
+    node_crontabs = user,system,apps1
+    node_backup_crontabs = cmnode2:apps2
+    node_floating_ip_addrs = cmnodef
+    node_services = web
+    node_filesystems = data,archive,webshare
+    node_applications = ldm
+
+    [CM_NODE]
+    nodename = cmnode2
+    ...
+    node_crontabs = apps2
+    node_backup_crontabs = cmnode1:user,cmnode1:system
+    node_backup_floating_ip_addrs = cmnode1:cmnodef
+    node_services = web
+    node_filesystems = data,archive,webshare
+    node_applications = ldm
+
+Applications:
+
+Applications are programs outside the OS. DRCM runs them as the given
+user:group with that user's environment sourced, so programs on the
+user's PATH need no absolute path. Start and stop programs can be
+several commands separated by ;. With an ensure script, DRCM uses it to
+watch the application.
+
+    ldm, ldm:users, ldmadmin start, ldmadmin stop
+    ldm, ldm:users, ldmadmin clean; ldmadmin mkqueue; ldmadmin start, ldmadmin stop; ldmadmin delqueue
+    ldm, ldm:users, ldmadmin start, ldmadmin stop, if [ -f ~/util/ldm_ensure.sh ]; then ~/util/ldm_ensure.sh; fi
+
+7. Transports: UDP and TCP with TLS
+-----------------------------------
+
+UDP (default):
+
+cluster_transport = udp. For nodes on the same subnet or a trusted
+private network. Each keep alive and command is one authenticated
+datagram on udpport. No certificates needed.
+
+TCP + TLS:
+
+cluster_transport = tcp. For failover over routed links or the internet:
+data center to cloud, cloud to cloud. The same authenticated frames run
+inside a mutually authenticated TLS 1.2+ connection on tcpport.
+
+The ping, rstats, cm_stat and keep alive clients all use one transport-
+aware exchange, so every command works the same way in both modes. In
+TCP mode the UDP thread still starts (for local clients); peers are
+reached over TLS.
+
+Open the matching ports in firewalld on every node, from every other
+node:
+
+    # firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" port port="53897" protocol="udp" accept'
+    # firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.122.184/32" port port="53897" protocol="tcp" accept'
+    # firewall-cmd --reload
+    # firewall-cmd --list-rich-rules
+
+Nodes must also be able to ping and SSH each other. firewalld allows
+ping by default; if it is blocked, remove the echo-request ICMP block.
+Direct iptables rules are legacy and not documented.
+
+8. Security model
+-----------------
+These protections apply to UDP as well as TCP. TLS adds a second layer
+on top; it does not replace the frame authentication.
+
+Authenticated version 2 frames:
+
+* Every cluster message is a version 2 frame: a 76-byte header (magic,
+  version, command, flags, payload length, timestamp, sequence number,
+  16-byte nonce) plus the payload, with an HMAC-SHA256 over the whole
+  frame keyed with the 2048-byte cluster authkey.
+* The HMAC is checked in constant time before any field is trusted, so a
+  forged or changed command is rejected. This replaces the static SHA-1
+  hash older releases sent in the clear.
+* Payloads are capped at 65,507 bytes and stats replies at 64 KB, which
+  bounds every allocation made from a length field.
+
+Anti-replay:
+
+* Each sender adds a monotonic sequence number and a random 16-byte
+  nonce to every frame.
+* The receiver checks the nonce cache first: the last 256 nonces per
+  peer are remembered, and an exact replay is rejected. This needs no
+  clock.
+* On a TCP connection the sequence number must also increase strictly.
+* Optional: replay_window_secs rejects frames whose timestamp is outside
+  the window. Use it only with synchronized clocks.
+
+TLS (TCP transport):
+
+* TLS 1.2 is the floor (tls_min_version = 1.3 raises it).
+* Mutual authentication: both ends present a certificate signed by the
+  cluster CA and verify the peer against tls_ca_file. The handshake
+  fails closed when verification fails.
+* Optional pinning with tls_peer_fingerprint rejects any certificate
+  other than the pinned one.
+* Tested against a live server: plain TCP, no client certificate and a
+  certificate from another CA are refused at the handshake, and a client
+  with a valid cluster certificate still cannot forge a command because
+  the HMAC check fails.
+
+Hardening:
+
+* Built with stack protector, _FORTIFY_SOURCE=2, PIE and full RELRO.
+* Signals are handled in a dedicated sigwait() thread, not in a signal
+  handler.
+* Commands run through su or sudo are shell quoted.
+* Scripts use StrictHostKeyChecking=accept-new (override with
+  DRCM_SSH_OPTS), mode 644 lock and time stamp files, and no world
+  writable mount points.
+* The UDP protocol was fuzzed with 2000 malformed packets under
+  AddressSanitizer and UBSan without a fault.
+
+Upgrade all nodes together. 1.42 speaks only v2 frames and does not talk
+to 1.41 or older nodes. Stop DRCM on every node, install 1.42
+everywhere, then start the nodes again.
+
+9. TCP and TLS setup
+--------------------
+The default is a private, self-signed cluster CA that signs one
+certificate per node. Externally issued certificates, such as Let's
+Encrypt via acme.sh, also work: DRCM only needs a CA file, a certificate
+and a key in PEM format.
+
+1. Create the cluster CA (once, on the entry point node):
+
+    # mkdir -pv /etc/drcm/tls && chmod 700 /etc/drcm/tls && cd /etc/drcm/tls
+    # openssl req -x509 -newkey rsa:3072 -sha256 -days 3650 -nodes \
+        -keyout ca-key.pem -out ca.pem -subj "/CN=DRCM Cluster CA"
+
+Keep ca-key.pem offline or on one admin host. Nodes only need ca.pem.
+
+2. Issue a certificate for each node:
+
+    # NODE=cmnode1.example.com
+    # openssl req -newkey rsa:3072 -nodes -keyout ${NODE}-key.pem \
+        -out ${NODE}.csr -subj "/CN=${NODE}"
+    # printf "subjectAltName=DNS:${NODE}\nextendedKeyUsage=serverAuth,clientAuth\n" > ${NODE}.ext
+    # openssl x509 -req -in ${NODE}.csr -CA ca.pem -CAkey ca-key.pem -CAcreateserial \
+        -days 825 -sha256 -extfile ${NODE}.ext -out ${NODE}.pem
+
+Each node uses its certificate for both roles (it serves and connects),
+so include both serverAuth and clientAuth. Install the files as
+/etc/drcm/tls/node.pem and /etc/drcm/tls/node-key.pem on that node, mode
+600.
+
+3. Configure the cluster:
+
+    [CM_SERVER]
+    ...
+    cluster_transport = tcp
+    tcpport = 53897
+    tls_ca_file = /etc/drcm/tls/ca.pem
+    tls_cert_file = /etc/drcm/tls/node.pem
+    tls_key_file = /etc/drcm/tls/node-key.pem
+    tls_min_version = 1.2
+
+Because /etc/drcm is identical on all nodes, the paths are the same
+everywhere; only the file contents differ per node. Exclude
+/etc/drcm/tls from the rsync that copies /etc/drcm to the other nodes,
+or each node will get the entry point's certificate.
+
+4. Optional: pin node certificates:
+
+    # openssl x509 -in cmnode2.example.com.pem -noout -fingerprint -sha256
+    sha256 Fingerprint=4A:1F:...:9C
+
+    [CM_NODE]
+    nodename = cmnode2
+    ...
+    tls_peer_fingerprint = 4A:1F:...:9C
+
+Remember to update the pin when a node certificate is renewed.
+
+Externally issued certificates:
+
+With acme.sh or another ACME client, point tls_cert_file at the full
+chain, tls_key_file at the key and tls_ca_file at the issuing root. Any
+certificate that root signs will pass verification, so pin node
+fingerprints (and update the pins on renewal) when you use a public CA.
+Restart DRCM after a renewal so it loads the new files.
+
+10. Witness quorum
+------------------
+In a two-node cluster a broken link between the nodes looks the same as
+a dead peer. Without help, both nodes could take the resources at once
+(split brain). A witness breaks the tie.
+
+    [CM_SERVER]
+    ...
+    quorum_required = 1
+    witness_endpoint = 10.0.0.9
+
+* Before taking over a dead peer's resources, the node pings the witness
+  with an authenticated v2 frame over the configured transport.
+* Witness reachable: this node is in the majority (itself plus the
+  witness) and fails over.
+* Witness unreachable: this node is probably the isolated one and stands
+  down. An attacker who blocks the peer link cannot force a false
+  failover.
+* Quorum required with no witness set fails closed (no takeover), and
+  --check-config reports it.
+
+The witness is any reachable DRCM endpoint that answers the
+authenticated protocol: a small third VM running drcm_server with the
+same authkey (and, in TCP mode, a certificate from the cluster CA).
+Place it so that it shares a failure domain with neither node, for
+example a third availability zone or site.
+
+11. Running, monitoring, stats and logs
+---------------------------------------
+After the configuration checks clean and /etc/drcm is mirrored to every
+node, start the server on each node:
+
+    # systemctl start drcm_server
+    # systemctl status drcm_server
+    # systemctl enable drcm_server
+
+Client commands:
+
+  drcm_server --client --command=cm_stat
+      Formatted cluster status report for all nodes.
+  drcm_server --client --command=ping
+      Tests every active node. Add -n"cmnode2" for one node, -c5 for a
+      count.
+  drcm_server --client --command=rstats
+      Raw per-node stats for custom reports. -n"nodename" for one node.
+  drcm_server --client --command=printcfg
+      The loaded cluster configuration.
+  drcm_server --client
+      Interactive console; type help.
+
+Per-node report from raw stats:
+
+    for CMNODE in cmnode1 cmnode2 cmnode3 cmnode4
+    do
+      echo $CMNODE
+      /usr/sbin/drcm_server --client --command=rstats | sed -n "/$CMNODE/,/$CMNODE/p" | grep -v $CMNODE
+      echo ""
+    done
+
+Logs:
+
+    # tail -f /var/log/drcm/drcm.log
+    # tail -f /var/log/drcm/ipv4addr_resource.log     # floating IP scripts (IPv4 and IPv6)
+    # journalctl -u drcm_server -f
+
+Testing failover and failback:
+
+    # systemctl stop drcm_server       # on the primary: resources move to the backup
+    # drcm_server --client --command=cm_stat    # from the backup
+    # systemctl start drcm_server      # failback
+    # drcm_server --client --command=cm_stat
+
+Other server options: --version, --debug, --debug-level=1..5, --verbose,
+--log-file=, --log-level=, --log-file-clear, --log-disable.
+
+12. Floating IP failover per platform
+-------------------------------------
+
+On premises and VMs: NetworkManager:
+
+NetworkManager (nmcli) is the method on RHEL 8, 9 and 10. The
+NetworkManager connection name must be the same as the device name,
+because the scripts update the connection and then reapply it to the
+device.
+
+    [CM_IPADDRS]
+    cmnodef, 192.168.122.180, 24, ens192, /etc/drcm/resources/ipv4addr_nmcli.sh
+    # VM and bare metal in one cluster: list both interface names
+    cmnodef, 192.168.122.180, 255.255.255.0, 'ens192|eno8303', /etc/drcm/resources/ipv4addr_nmcli.sh
+
+Test on each node:
+
+    # /etc/drcm/resources/ipv4addr_nmcli.sh 192.168.122.180 24 ens192 start
+    # ip a
+    # /etc/drcm/resources/ipv4addr_nmcli.sh 192.168.122.180 24 ens192 stop
+
+For complex layouts, ipv4addr_copy_nmcli.sh swaps per-node
+<host>_start_backup_ip_<dev> and <host>_stop_backup_ip_<dev> connection
+files kept in /etc/drcm/my_cluster_conf. The start file lists the
+floating IP; the stop file is the node's normal connection.
+
+IPv6 floating IPs:
+
+    cmnodef6, 2001:db8:122::180, 64, ens192, /etc/drcm/resources/ipv6addr_nmcli.sh
+    # nmcli -g ipv6.method connection show ens192    # must not be "disabled" or "ignore"
+    # nmcli con mod ens192 ipv6.method auto && nmcli device reapply ens192
+
+Cluster traffic between nodes stays IPv4; only the floating IPs users
+connect to can be IPv6.
+
+AWS: Elastic IP and route-table VIP:
+
+In AWS an interface alias does not move between instances.
+aws_ipv4addr.sh takes the same arguments as the other IPv4 scripts and
+moves the address through the EC2 API, using the AWS CLI v2 and instance
+metadata through IMDSv2 (falling back to IMDSv1).
+
+Elastic IP mode:
+
+Pass the allocation id as the IP, or set CM_AWS_EIP_ALLOC_ID. start
+associates the EIP with this instance (--allow-reassociation); watch
+checks this instance holds it.
+
+    web, eipalloc-0abc1234, 32, eth0, /etc/drcm/resources/aws_ipv4addr.sh
+
+Route-table VIP mode:
+
+Set CM_AWS_ROUTE_TABLE_ID and pass a VIP. start points the VIP's /32
+route at this instance's primary ENI. Disable source/destination
+checking on the instances and add the VIP on the interface.
+
+    web, 10.0.12.50, 32, eth0, /etc/drcm/resources/aws_ipv4addr.sh
+
+  CM_AWS_EIP_ALLOC_ID
+      Elastic IP allocation id when the first argument is not one.
+  CM_AWS_ROUTE_TABLE_ID
+      VPC route table id; selects VIP route mode.
+  CM_AWS_REGION
+      Overrides the region read from instance metadata.
+  AWS_PROFILE, AWS_*
+      Standard AWS CLI credentials. An instance role is recommended.
+
+Set the variables in the cluster user's bash_rc_file. The instance role
+needs ec2:AssociateAddress, ec2:DisassociateAddress,
+ec2:DescribeAddresses, ec2:ReplaceRoute, ec2:CreateRoute and
+ec2:DescribeRouteTables. Clusters that span AWS and another site should
+use cluster_transport = tcp.
+
+Legacy: network-scripts:
+
+ipv4addr.sh, ipv4addr_multi.sh, ipv4addr_copy_config.sh and the ifcfg-
+eth0_N templates are for systems without NetworkManager only. See
+README.txt for the conversion notes.
+
+13. Setup and migration tools
+-----------------------------
+
+tools/migrate_cfg.py:
+
+Migrates a pre-1.42 cm.cfg. It is additive: the file is copied through
+unchanged and the new keys are inserted at the end of [CM_SERVER]. It is
+idempotent: a file that already has cluster_transport is left alone
+(apart from --tcp switching the transport). By default the cluster stays
+on UDP.
+
+    $ python3 tools/migrate_cfg.py /etc/drcm/cm.cfg -o /tmp/cm.cfg.new
+    $ python3 tools/migrate_cfg.py /etc/drcm/cm.cfg -o /tmp/cm.cfg.new \
+          --tcp --quorum --witness 10.0.0.9 --tls-min 1.3
+    $ diff /etc/drcm/cm.cfg /tmp/cm.cfg.new
+    # drcm_server --config-file=/tmp/cm.cfg.new --check-config
+
+  -o FILE
+      Write to FILE instead of stdout.
+  --tcp
+      Switch to TCP + TLS and write the TLS keys.
+  --ca, --cert, --key
+      TLS paths (default /etc/drcm/tls/ca.pem, node.pem, node-key.pem).
+  --tls-min 1.2|1.3
+      Minimum TLS version.
+  --replay-window SECONDS
+      Timestamp window (default 0, nonce and sequence only).
+  --quorum, --witness HOST[:PORT]
+      Turn on witness quorum.
+
+tools/drcm_gui.py:
+
+A tkinter GUI (Python standard library only) with two tabs: New cluster
+builds a cm.cfg from cluster settings, nodes, services, transport, TLS
+and quorum; Migrate runs migrate_cfg.py on an existing file. The config
+generator is a pure function, so it can be checked without a display:
+
+    $ sudo dnf -y install python3-tkinter
+    $ python3 tools/drcm_gui.py              # GUI
+    $ python3 tools/drcm_gui.py --selftest   # headless check
+
+Always run --check-config on a generated file before you use it.
+
+14. Two-node cluster walkthrough
+--------------------------------
+Based on etc/cm_2_node_example.cfg: cmnode1 (192.168.122.111) is primary
+for the web and ldm floating IPs, httpd and the data NFS mount; cmnode2
+(192.168.122.112) backs them up and is primary for archive.
+
+1. Install DRCM on both nodes (RPM or source build).
+2. Auth key: create /etc/drcm/.auth/authkey on cmnode1 as shown in
+   Cluster auth keys.
+3. Config: copy the example and edit host names, IPs and resources.
+      # cp /etc/drcm/cm_2_node_example.cfg /etc/drcm/cm.cfg
+      # vi /etc/drcm/cm.cfg
+
+4. Turn off debug for production: the example sets debug = 1 and
+   debug_level = 5.
+5. Check it:
+      # drcm_server --check-config | grep -i -E 'error|warn|fail|info'
+
+6. Firewall: on each node allow UDP and TCP 53897 and SSH from the other
+   node.
+7. Copy /etc/drcm to cmnode2, dry run first:
+      # rsync -av --force --stats --progress -n /etc/drcm 192.168.122.112:/etc/.
+      # rsync -av --force --stats --progress /etc/drcm 192.168.122.112:/etc/.
+
+8. Test the floating IPs on each node with the resource script start and
+   stop actions.
+9. Start drcm_server on both nodes and check cm_stat.
+10. Fail over: stop DRCM on cmnode1 and watch cmnode2 take the web IP,
+    httpd and the backup resources. Start cmnode1 again to fail back.
+11. Optional hardening for nodes in different sites: run migrate_cfg.py
+    --tcp --quorum --witness HOST, install TLS files, and add a witness
+    VM.
+12. Enable the service on both nodes: systemctl enable drcm_server.
+
+15. File replication and alerts
+-------------------------------
+
+Two-way file replication:
+
+/etc/drcm/file_system_sync holds rsync over SSH scripts that mirror file
+systems from a primary to a backup node, and back again after a
+failback. Configure the nodes in
+/etc/drcm/my_cluster_conf/my_cluster_info.sh (CLUSTER_NAME, BACKUP_USER,
+PRIMARY_FILESYSTEMS_IP, BACKUP_FILESYSTEMS_IP and the matching *_ETH
+settings), list directories in the *sync_list.sh files with RsyncMirror
+(exact mirror) or RsyncCopy (keep deleted files), and run the sync
+scripts from the backup user's crontab: every 5 minutes on the primary,
+every minute on the backup. The backup user needs SSH key access between
+the nodes and write access to my_cluster_conf.
+/etc/drcm/utils/manual_fs_failover.sh tests a failover.
+
+    $ crontab -e      # primary
+    */5 * * * *  /etc/drcm/file_system_sync/sync_testfs.sh > /dev/null 2>&1
+    $ crontab -e      # backup
+    * * * * * /etc/drcm/file_system_sync/sync_testfs.sh > /dev/null 2>&1
+
+Cluster alerts:
+
+    00 * * * * /etc/drcm/utils/watch_cluster.sh > /dev/null 2>&1     # root crontab
+    # vi /etc/drcm/my_cluster_conf/cm_alert_list.sh
+    export EMAILlist="root,name@example.com"
+    export TEXTlist="555-555-5555@vtext.com"
+
+Alerts are limited to one every 4 hours after the first message. Nodes
+need a working postfix relay (relayhost in /etc/postfix/main.cf). Other
+scripts can send alerts by sourcing /etc/drcm/utils/send_alert.sh and
+calling send_alert "subject" "body".
+
+16. Troubleshooting and support
+-------------------------------
+  Nodes see each other as dead after an upgrade
+      All nodes must run 1.42. Older nodes do not speak v2 frames.
+  Ping fails, frames rejected
+      Same authkey on every node (compare authkey.sha1), firewalld rules
+      for the UDP/TCP ports, correct keep_alive_ip,
+      bind_to_keep_alive_ip.
+  Replay rejections with replay_window_secs set
+      Clocks drifted. Fix chrony, or set the window back to 0.
+  TCP mode will not start
+      --check-config reports missing TLS files. Check paths and modes,
+      and that the key matches the certificate.
+  TLS handshake fails
+      Certificate not signed by tls_ca_file, expired, missing
+      clientAuth/serverAuth, or a stale tls_peer_fingerprint after
+      renewal.
+  No failover with quorum on
+      The node cannot reach witness_endpoint. Ping the witness and check
+      its authkey and certificate.
+  Floating IP does not come up
+      NetworkManager connection name must equal the device name; check
+      /var/log/drcm/ipv4addr_resource.log; run the script by hand with
+      start.
+  AWS address does not move
+      AWS CLI v2 installed, instance role permissions, IMDS reachable,
+      correct allocation id or route table id, source/destination check
+      off for VIP mode.
+  Very large logs
+      Set debug = 0 and lower log_level.
+
+Support:
+
+* Product page and online docs: datareel.com/info_drcm.php
+* Source code and downloads: datareel.com/downloads/drcm
+* Questions and bug reports: datareel.com/contact.php
+* Release notes: CHANGELOG.md in the source distribution.
+
+DataReel Cluster Manager 1.42, GNU General Public License.
