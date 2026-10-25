@@ -1,5 +1,6 @@
 # Cluster manaager sub-interface template file
 # RHEL/CENTOS location: /etc/sysconfig/network-scripts
+# Install as ifcfg-eth0:3 (stored as ifcfg-eth0_3 because Windows does not allow ':' in file names)
 # NOTE: IPADDR and PREFIX/NETMASK will be set by DRCM process
 DEVICE=eth0:3
 BOOTPROTO=none
