@@ -24,7 +24,7 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   after the link was lost, before the AWS node took over.
 - `etc/utils/drsm_report_check.sh`, a `takeover_check` that asks a
   DataReel System Monitor (DRSM) dashboard on another server when the
-  dead peer last reported (DRSM 1.32 `php/host_status.php`). A report
+  dead peer last reported (the new DRSM page `php/host_status.php`). A report
   newer than `--max-age` (default 1200 seconds) means the peer is alive
   and only the cluster link is down, so the takeover is refused. If the
   dashboard cannot be read the takeover goes ahead, unless
