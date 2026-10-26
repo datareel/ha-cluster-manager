@@ -196,7 +196,7 @@ struct CMnode {
   int node_is_active;
 
   // TCP/cloud mode (Phase 4). Optional per node.
-  gxList<gxString> peer_endpoints;   // one or more host:port heartbeat paths
+  gxList<gxString> peer_endpoints;   // one or more host:port keep-alive paths
   gxString tls_peer_fingerprint;     // optional SHA-256 cert pin for this peer
   gxString floating_ip_provider;     // cloud provider hook, e.g. "aws"
 

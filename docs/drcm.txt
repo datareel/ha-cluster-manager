@@ -334,8 +334,8 @@ before: UDP transport, no quorum.
       even one signed by the cluster CA. Colons, spaces, case and a
       sha256 prefix are ignored.
   peer_endpoints
-      One or more host:port heartbeat paths. Parsed and validated in
-      1.42 and reserved for multi-path heartbeats; the transport
+      One or more host:port keep-alive paths. Parsed and validated in
+      1.42 and reserved for multi-path keep-alives; the transport
       currently uses keep_alive_ip.
   floating_ip_provider
       Parsed and reserved in 1.42. The floating IP method is chosen by

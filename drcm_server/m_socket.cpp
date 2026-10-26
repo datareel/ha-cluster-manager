@@ -787,7 +787,7 @@ int send_keep_alive(CMnode *n, int &error_level, int timeout_secs, int timeout_u
                             &bytes_read, timeout_secs, &timed_out);
   if(rc != 0 || bytes_read <= 0) {
     // For UDP a clean timeout maps to error_level 2 (the keep alive logic
-    // treats a timeout as a missed heartbeat); any other failure is 3.
+    // treats a timeout as a missed keep alive); any other failure is 3.
     error_level = timed_out ? 2 : 3;
     if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
       if(timed_out)

@@ -534,7 +534,7 @@ Repeat this test on all the cluster nodes.
 IPv6 Floating IP Addresses (NetworkManager):
 -------------------------------------------
 Floating IP addresses can be IPv6 as well as IPv4. The cluster nodes
-still talk to each other over IPv4 (keep alive IPs, heartbeats and
+still talk to each other over IPv4 (keep alive IPs, keep alive messages and
 cluster messages), so every node needs an IPv4 address for the
 cluster; only the floating IPs that users connect to can be IPv6. A
 cluster can have both IPv4 and IPv6 floating IPs.

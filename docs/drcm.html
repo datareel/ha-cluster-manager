@@ -460,7 +460,7 @@ Restart=on-failure</code></pre>
       <tr><td><code>node_crontabs</code>, <code>node_floating_ip_addrs</code>, <code>node_services</code>, <code>node_applications</code>, <code>node_filesystems</code></td><td>Comma separated resource nicknames this node runs as primary.</td></tr>
       <tr><td><code>node_backup_crontabs</code>, <code>node_backup_floating_ip_addrs</code>, <code>node_backup_services</code>, <code>node_backup_applications</code>, <code>node_backup_filesystems</code></td><td>Resources this node takes over, as <code>nodename:nickname</code> pairs.</td></tr>
       <tr><td><code>tls_peer_fingerprint</code></td><td>Optional SHA-256 fingerprint of this node's certificate. Peers connecting to this node over TLS reject any other certificate, even one signed by the cluster CA. Colons, spaces, case and a <code>sha256</code> prefix are ignored.</td></tr>
-      <tr><td><code>peer_endpoints</code></td><td>One or more <code>host:port</code> heartbeat paths. Parsed and validated in 1.42 and reserved for multi-path heartbeats; the transport currently uses <code>keep_alive_ip</code>.</td></tr>
+      <tr><td><code>peer_endpoints</code></td><td>One or more <code>host:port</code> keep-alive paths. Parsed and validated in 1.42 and reserved for multi-path keep-alives; the transport currently uses <code>keep_alive_ip</code>.</td></tr>
       <tr><td><code>floating_ip_provider</code></td><td>Parsed and reserved in 1.42. The floating IP method is chosen by the resource script in <code>[CM_IPADDRS]</code>, for example <code>aws_ipv4addr.sh</code>.</td></tr>
     </tbody>
   </table></div>

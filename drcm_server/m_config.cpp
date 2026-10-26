@@ -1531,7 +1531,7 @@ int LoadOrBuildConfigFile()
 	  }
 	}
 	if(cfgkey == "peer_endpoints") {
-	  // One or more host:port heartbeat paths for this peer (TCP mode)
+	  // One or more host:port keep-alive paths for this peer (TCP mode)
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
 	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
