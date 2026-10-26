@@ -43,6 +43,7 @@ tar xvf drcm_server.tar.gz -C $RPM_BUILD_ROOT
 %config %attr(0755, root, root) "/etc/drcm/file_system_sync/sync_www.sh"
 %config(noreplace) %dir %attr(0755, root, root) "/etc/drcm/utils"
 %config %attr(0755, root, root) "/etc/drcm/utils/calc_runtime.sh"
+%config %attr(0755, root, root) "/etc/drcm/utils/drsm_report_check.sh"
 %config %attr(0755, root, root) "/etc/drcm/utils/clean_rsync_procs.sh"
 %config %attr(0755, root, root) "/etc/drcm/utils/cm_stat"
 %config %attr(0755, root, root) "/etc/drcm/utils/fs_has_failedover.sh"

@@ -22,6 +22,13 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   the failover. Tested on a two-node workstation and AWS cluster: with
   the workstation's WAN down, it stood down its resources 25 seconds
   after the link was lost, before the AWS node took over.
+- `etc/utils/drsm_report_check.sh`, a `takeover_check` that asks a
+  DataReel System Monitor (DRSM) dashboard on another server when the
+  dead peer last reported (DRSM 1.32 `php/host_status.php`). A report
+  newer than `--max-age` (default 1200 seconds) means the peer is alive
+  and only the cluster link is down, so the takeover is refused. If the
+  dashboard cannot be read the takeover goes ahead, unless
+  `--fail-closed` is given.
 - Phase 5 documentation for the 1.42 release. `docs/drcm.html` is a
   new, self-contained administrator guide with light and dark themes
   (follows the system setting, with a toggle that is remembered), a
