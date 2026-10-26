@@ -6,6 +6,22 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 ## [Unreleased]
 
 ### Added
+- Split brain protection for clusters over the internet. A new
+  `isolation_check` setting names a script that exits 0 while this node
+  can reach the outside world; `etc/utils/internet_check.sh` pings
+  8.8.8.8 and 1.1.1.1 (with a TCP port 53 fallback) and logs whether
+  the LAN or the WAN is down. When every peer stops answering and the
+  check fails (after `isolation_check_count` missed keep alives,
+  default 15), the node is isolated: it stops its own crontabs,
+  services, applications and floating IPs and does not take over a
+  peer's resources. It resumes when a peer answers again, or after the
+  check has passed for `isolation_recover_secs` (default 300) with the
+  peers still down. A new `takeover_check` setting names a script run
+  with the dead peer's nodename before a takeover; a non-zero exit
+  (for example, the peer still reports to an outside monitor) stops
+  the failover. Tested on a two-node workstation and AWS cluster: with
+  the workstation's WAN down, it stood down its resources 25 seconds
+  after the link was lost, before the AWS node took over.
 - Phase 5 documentation for the 1.42 release. `docs/drcm.html` is a
   new, self-contained administrator guide with light and dark themes
   (follows the system setting, with a toggle that is remembered), a
@@ -19,6 +35,18 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   Elastic IP and route-table VIP modes, `migrate_cfg.py` and
   `drcm_gui.py`, a two-node walkthrough and troubleshooting.
 - `docs/drcm.txt`: the same guide in plain text.
+
+### Fixed
+- Resource scripts and applications started by the server inherited
+  the server's blocked signal mask (SIGTERM, SIGINT, SIGHUP and
+  others, blocked in 1.42 for the signal thread). They could not be
+  stopped with `kill` or `timeout`, so a hung command in a resource
+  script hung that resource thread. Child processes now start with
+  an empty signal mask and default signal handlers.
+- The cluster sockets were inherited by child processes, so a resource
+  script or application still running when the server restarted held
+  the cluster port, and the new server could not bind it. The sockets
+  are now close on exec.
 
 ## [1.42] - 2026-10-25
 

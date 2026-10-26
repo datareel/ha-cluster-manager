@@ -274,6 +274,50 @@ int cm_have_quorum()
   return 1;
 }
 
+// Run a split brain check script as the cluster user. The script's
+// output goes to split_brain_checks.log; only its exit code is used.
+static int cm_run_check_script(const gxString &script, const gxString &arg)
+{
+  gxString command;
+  command << clear << script;
+  if(!arg.is_null()) command << " " << ShellQuote(arg);
+  command << " >> " << servercfg->log_dir << "/split_brain_checks.log 2>&1";
+  return RunSystemCommand(command);
+}
+
+int cm_node_is_connected()
+{
+  if(servercfg->isolation_check.is_null()) return 1; // feature disabled
+  gxString no_arg;
+  return cm_run_check_script(servercfg->isolation_check, no_arg) == 0;
+}
+
+int cm_may_take_over(CMnode *peer)
+{
+  gxString message;
+  if(!cm_have_quorum()) {
+    message << clear << "WARNING - Node " << peer->nodename
+            << " unreachable but this node has NO QUORUM (cannot reach witness); standing down, not failing over";
+    LogMessage(message.c_str());
+    return 0;
+  }
+  if(servercfg->node_isolated || !cm_node_is_connected()) {
+    message << clear << "WARNING - Node " << peer->nodename
+            << " unreachable but this node failed its isolation check; standing down, not failing over";
+    LogMessage(message.c_str());
+    return 0;
+  }
+  if(!servercfg->takeover_check.is_null()) {
+    if(cm_run_check_script(servercfg->takeover_check, peer->nodename) != 0) {
+      message << clear << "WARNING - Node " << peer->nodename
+              << " unreachable but takeover_check says it is still alive; not failing over";
+      LogMessage(message.c_str());
+      return 0;
+    }
+  }
+  return 1;
+}
+
 int get_fd_socket_error(int &error_number, gxString &sbuf)
 {
   error_number = errno;

@@ -175,6 +175,9 @@ CMconfig::CMconfig()
   tls_min_version = 2;
   replay_window_secs = 0;
   quorum_required = 0;
+  isolation_check_count = 15;
+  isolation_recover_secs = 300;
+  node_isolated = 0;
 
   accept_clients = 1;
   echo_loop = 1;
@@ -663,6 +666,9 @@ const char *cfg_server_keys[] = {
   "cluster_transport", "tls_ca_file", "tls_cert_file", "tls_key_file",
   "tls_min_version", "replay_window_secs", "witness_endpoint",
   "quorum_required",
+  // Split brain protection
+  "isolation_check", "isolation_check_count", "isolation_recover_secs",
+  "takeover_check",
   0
 };
 
@@ -1105,6 +1111,26 @@ int LoadOrBuildConfigFile()
 	}
 	if(cfgkey == "witness_endpoint") {
 	  servercfg->witness_endpoint = CfgGetEqualToString(ptr->data);
+	}
+	if(cfgkey == "isolation_check") {
+	  servercfg->isolation_check = CfgGetEqualToString(ptr->data);
+	}
+	if(cfgkey == "isolation_check_count") {
+	  servercfg->isolation_check_count = CfgGetEqualToParm(ptr->data);
+	  if(servercfg->isolation_check_count < 1) {
+	    NT_print("Config file has bad isolation_check_count value");
+	    servercfg->isolation_check_count = 15;
+	  }
+	}
+	if(cfgkey == "isolation_recover_secs") {
+	  servercfg->isolation_recover_secs = CfgGetEqualToParm(ptr->data);
+	  if(servercfg->isolation_recover_secs < 0) {
+	    NT_print("Config file has bad isolation_recover_secs value");
+	    servercfg->isolation_recover_secs = 300;
+	  }
+	}
+	if(cfgkey == "takeover_check") {
+	  servercfg->takeover_check = CfgGetEqualToString(ptr->data);
 	}
 	if(cfgkey == "quorum_required") {
 	  servercfg->quorum_required = CfgGetTrueFalseValue(ptr->data);
@@ -1638,6 +1664,21 @@ int LoadOrBuildConfigFile()
     }
   }
 
+  // The split brain check scripts must exist and be executable. Each
+  // setting is a command line, so only its first word is checked.
+  const gxString *check_cmds[2] = { &servercfg->isolation_check, &servercfg->takeover_check };
+  const char *check_names[2] = { "isolation_check", "takeover_check" };
+  for(int ci = 0; ci < 2; ci++) {
+    if(check_cmds[ci]->is_null()) continue;
+    gxString prog = *check_cmds[ci];
+    prog.TrimLeadingSpaces();
+    if(prog.Find(" ") != -1) prog.DeleteAfterIncluding(" ");
+    if(access(prog.c_str(), X_OK) != 0) {
+      NT_print("ERROR - script not found or not executable for", check_names[ci], prog.c_str());
+      error_level = 1;
+    }
+  }
+
   // Set CM logfile name
   if(servercfg->is_client) {
     if(!servercfg->has_log_file_name_override) servercfg->logfile_name << clear << "drcm_client.log";
@@ -1908,7 +1949,7 @@ int NT_check_dir(const gxString &dir)
     if(servercfg->log_level >= 4 || servercfg->debug) {
       NT_print("SUDO command:", command.c_str()); 
     }
-    if(system(command.c_str()) != 0) {
+    if(CMSystem(command.c_str()) != 0) {
       NT_print("WARNING - SUDO command failed:", command.c_str());
     }
     gxString owner, chown_command;
@@ -1918,7 +1959,7 @@ int NT_check_dir(const gxString &dir)
     if(servercfg->log_level >= 4 || servercfg->debug) {
       NT_print("SUDO command:", command.c_str()); 
     }
-    if(system(command.c_str()) != 0) {
+    if(CMSystem(command.c_str()) != 0) {
       NT_print("WARNING - SUDO command failed:", command.c_str());
     }
   }

@@ -37,6 +37,10 @@ Process functions for Datareel cluster manager.
 #include "drcm_server.h"
 #include "m_proc.h"
 #include "m_log.h"
+#include <spawn.h>
+#include <sys/wait.h>
+
+extern char **environ;
 
 void *ProcessThread::ThreadEntryRoutine(gxThread_t *thread)
 {
@@ -578,6 +582,39 @@ gxString ShellQuote(const gxString &s)
   return buf;
 }
 
+// Run a shell command and wait for it, like system(). Every DRCM
+// thread blocks the process signals so only the signal thread gets them
+// (see StartSignalThread), and a child inherits the blocked mask. With
+// system() a resource script, or anything it starts, could not be
+// stopped with SIGTERM or SIGINT; "timeout" or "kill" did nothing. The
+// child here starts with an empty signal mask and default handlers.
+int CMSystem(const char *command)
+{
+  if(!command) return 1;
+
+  sigset_t empty_set, default_set;
+  sigemptyset(&empty_set);
+  get_process_signal_set(&default_set);
+
+  posix_spawnattr_t attr;
+  if(posix_spawnattr_init(&attr) != 0) return -1;
+  posix_spawnattr_setsigmask(&attr, &empty_set);
+  posix_spawnattr_setsigdefault(&attr, &default_set);
+  posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF);
+
+  pid_t pid;
+  char *argv[] = { (char *)"sh", (char *)"-c", (char *)command, 0 };
+  int rv = posix_spawn(&pid, "/bin/sh", 0, &attr, argv, environ);
+  posix_spawnattr_destroy(&attr);
+  if(rv != 0) return -1;
+
+  int status = 0;
+  while(waitpid(pid, &status, 0) < 0) {
+    if(errno != EINTR) return -1;
+  }
+  return status;
+}
+
 int RunSystemCommand(const gxString &input_command)
 {
   gxString superuser = "root";
@@ -593,7 +630,7 @@ int RunSystemCommand(const gxString &input_command)
     LogDebugMessage(command.c_str());
   }
 
-  return system(command.c_str());
+  return CMSystem(command.c_str());
 } 
 
 int RunSystemCommand(const gxString &input_command, const gxString &user, const gxString &group)
@@ -620,7 +657,7 @@ int RunSystemCommand(const gxString &input_command, const gxString &user, const 
     LogDebugMessage(command.c_str());
   }
 
-  return system(command.c_str());
+  return CMSystem(command.c_str());
 } 
 // ----------------------------------------------------------- // 
 // ------------------------------- //

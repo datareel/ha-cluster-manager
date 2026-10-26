@@ -445,6 +445,19 @@ void CM_TCP_ServerThread::ThreadCleanupHandler(gxThread_t *thread)
   Close();
 }
 
+// Sleep between resource checks, one second at a time, and return early
+// when this node becomes isolated or stops being isolated, so resources
+// are stopped or restarted without waiting a full check interval.
+static void cm_resource_check_sleep(int secs)
+{
+  int isolated = servercfg->node_isolated;
+  while(secs-- > 0) {
+    if(!servercfg->accept_clients || servercfg->restart_server || servercfg->kill_server) return;
+    if(servercfg->node_isolated != isolated) return;
+    sSleep(1);
+  }
+}
+
 void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
 {
   gxString message;
@@ -453,6 +466,7 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
   const int num_inactive_node_count = 100;
   int message_count = 0;
   int keep_alive_error_level = 0;
+  time_t connected_since = 0; // isolated node: when the isolation check began passing
 
   while(servercfg->accept_clients) { 
     if(servercfg->restart_server) break;
@@ -535,6 +549,14 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
 	  message << clear << "Node " << ptr->data->nodename << " is alive";
 	  LogMessage(message.c_str());
 	}
+	if(servercfg->node_isolated) {
+	  // A peer answers again, so the cluster link is back. Take back this
+	  // node's resources; the peer fails back any it took over.
+	  servercfg->node_isolated = 0;
+	  connected_since = 0;
+	  message << clear << "Node " << ptr->data->nodename << " is reachable again, this node is no longer isolated, resuming its resources";
+	  LogMessage(message.c_str());
+	}
 	if(ptr->data->CLUSTER_TAKE_OVER_FLAG() == 1) {
 	  prev_failed_nodes.Add(ptr->data);
 	}
@@ -578,7 +600,16 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
       }
     }
 
+    // Split brain protection: when every peer stops answering, run the
+    // isolation check part way through the dead node count. If this node
+    // cannot reach the outside world it is the isolated side, so it stops
+    // its own resources before a peer can take them over.
+    int all_peers_failed = (num_remote_active_nodes > 0 && error_count == num_remote_active_nodes);
+    int isolation_checked = 0;
+
     int max_errors = servercfg->dead_node_count;
+    int isolation_check_at = servercfg->isolation_check_count;
+    if(isolation_check_at > max_errors) isolation_check_at = max_errors;
     ptr = failed_nodes.GetHead();
     int failed_message_count = 0;
     while(ptr) {
@@ -595,18 +626,37 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
 	}
 	failed_message_count++;
 	if(failed_message_count >= max_failed_message_count) failed_message_count = 0;
-	if(error_count >= max_errors) {
-	  // Quorum gate: in quorum mode a node may take over only if it still
-	  // holds quorum (can reach the witness). Without quorum this node is
-	  // likely the isolated minority, so it must not fail over the peer's
-	  // resources -- this blocks a split brain, a network cut or an
-	  // attacker from forcing a bogus failover.
-	  if(!cm_have_quorum()) {
-	    if(message_count == 0) {
-	      message << clear << "WARNING - Node " << ptr->data->nodename
-	              << " unreachable but this node has NO QUORUM (cannot reach witness); standing down, not failing over";
-	      LogMessage(message.c_str());
+	if(all_peers_failed && !isolation_checked && error_count >= isolation_check_at &&
+	   !servercfg->isolation_check.is_null()) {
+	  isolation_checked = 1;
+	  if(!cm_node_is_connected()) {
+	    connected_since = 0;
+	    if(!servercfg->node_isolated) {
+	      servercfg->node_isolated = 1;
+	      LogMessage("ERROR - All peers unreachable and the isolation check failed, this node is isolated, stopping its resources");
 	    }
+	  }
+	  else if(servercfg->node_isolated) {
+	    // Outside connectivity is back but the peers are still down.
+	    // Wait isolation_recover_secs so a peer that took over has time
+	    // to be seen and fail back before this node starts its resources.
+	    time_t now = time(0);
+	    if(connected_since == 0) connected_since = now;
+	    if((now - connected_since) >= servercfg->isolation_recover_secs) {
+	      servercfg->node_isolated = 0;
+	      connected_since = 0;
+	      LogMessage("Isolation check passing and peers still down, this node is no longer isolated, resuming its resources");
+	    }
+	  }
+	}
+	if(error_count >= max_errors) {
+	  // Takeover gate: a node may take over only if it still holds
+	  // quorum (can reach the witness), passes its isolation check and
+	  // the takeover_check script agrees the peer is down. Otherwise this
+	  // node is likely the isolated side, so it must not fail over the
+	  // peer's resources -- this blocks a split brain, a network cut or
+	  // an attacker from forcing a bogus failover.
+	  if(!cm_may_take_over(ptr->data)) {
 	    break;
 	  }
 	  if(ptr->data->CLUSTER_TAKE_OVER_FLAG() == 0) {	
@@ -626,6 +676,11 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
       if((error_count <  max_errors) && keep_alive_error_level == 0) {
 	message << clear << "Node " << ptr->data->nodename << " is back on line";
 	LogMessage(message.c_str());
+	if(servercfg->node_isolated) {
+	  servercfg->node_isolated = 0;
+	  connected_since = 0;
+	  LogMessage("A peer is reachable again, this node is no longer isolated, resuming its resources");
+	}
 	if(ptr->data->CLUSTER_TAKE_OVER_FLAG() == 1) {
 	  ptr->data->CLUSTER_TAKE_OVER_FLAG(0, 1);
 	  message << clear << "Node " << ptr->data->nodename << " signaling cluster failback to take back resources";
@@ -693,6 +748,7 @@ void *CM_CrontabsThread::ThreadEntryRoutine(gxThread_t *thread)
 
   set_this_node(); // Load this node so the check interval below is from the config
   sSleep(node.crontabs_check); // Time for process start up
+  int fenced = 0; // 1 = resources stopped because this node is isolated
   command << clear << "date > " << servercfg->log_dir << "/crontab_resource.log";
   RunSystemCommand(command);
 
@@ -700,11 +756,22 @@ void *CM_CrontabsThread::ThreadEntryRoutine(gxThread_t *thread)
     if(servercfg->restart_server) break;
     if(servercfg->kill_server) break;
   
-    if(install_crontabs() != 0) {
-      LogMessage("ERROR - Crontab install reported errors");
+    if(servercfg->node_isolated) {
+      // Isolated: stop everything this node runs, once, and start
+      // nothing until the node is connected again.
+      if(!fenced) {
+	LogMessage("This node is isolated, stopping all crontabs");
+	if(remove_all_crontabs() == 0) fenced = 1;
+      }
+    }
+    else {
+      fenced = 0;
+      if(install_crontabs() != 0) {
+	LogMessage("ERROR - Crontab install reported errors");
+      }
     }
 
-    sSleep(node.crontabs_check);
+    cm_resource_check_sleep(node.crontabs_check);
   }  
 
   return (void *)0;
@@ -963,6 +1030,7 @@ void *CM_IPaddrsThread::ThreadEntryRoutine(gxThread_t *thread)
 
   set_this_node(); // Load this node so the check interval below is from the config
   sSleep(node.ipaddrs_check); // Time for process start up
+  int fenced = 0; // 1 = resources stopped because this node is isolated
   command << clear << "date > " << servercfg->log_dir << "/ipv4addr_resource.log";
   RunSystemCommand(command);
 
@@ -970,11 +1038,22 @@ void *CM_IPaddrsThread::ThreadEntryRoutine(gxThread_t *thread)
     if(servercfg->restart_server) break;
     if(servercfg->kill_server) break;
   
-    if(install_floating_ipaddrs() != 0) {
-      LogMessage("ERROR - Floating IP address install reported errors");
+    if(servercfg->node_isolated) {
+      // Isolated: stop everything this node runs, once, and start
+      // nothing until the node is connected again.
+      if(!fenced) {
+	LogMessage("This node is isolated, stopping all floating IP addresses");
+	if(remove_all_ipaddrs() == 0) fenced = 1;
+      }
+    }
+    else {
+      fenced = 0;
+      if(install_floating_ipaddrs() != 0) {
+	LogMessage("ERROR - Floating IP address install reported errors");
+      }
     }
 
-    sSleep(node.ipaddrs_check);
+    cm_resource_check_sleep(node.ipaddrs_check);
   }  
 
   return (void *)0;
@@ -1250,6 +1329,7 @@ void *CM_servicesThread::ThreadEntryRoutine(gxThread_t *thread)
 
   set_this_node(); // Load this node so the check interval below is from the config
   sSleep(node.services_check); // Time for process start up
+  int fenced = 0; // 1 = resources stopped because this node is isolated
 
   command << clear << "date > " << servercfg->log_dir << "/service_resource.log";
   RunSystemCommand(command);
@@ -1258,11 +1338,22 @@ void *CM_servicesThread::ThreadEntryRoutine(gxThread_t *thread)
     if(servercfg->restart_server) break;
     if(servercfg->kill_server) break;
   
-    if(install_services() != 0) {
-      LogMessage("ERROR - Service start/watch reported errors");
+    if(servercfg->node_isolated) {
+      // Isolated: stop everything this node runs, once, and start
+      // nothing until the node is connected again.
+      if(!fenced) {
+	LogMessage("This node is isolated, stopping all services");
+	if(stop_all_services() == 0) fenced = 1;
+      }
+    }
+    else {
+      fenced = 0;
+      if(install_services() != 0) {
+	LogMessage("ERROR - Service start/watch reported errors");
+      }
     }
 
-    sSleep(node.services_check);
+    cm_resource_check_sleep(node.services_check);
   }  
 
   return (void *)0;
@@ -1605,6 +1696,7 @@ void *CM_applicationsThread::ThreadEntryRoutine(gxThread_t *thread)
 
   set_this_node(); // Load this node so the check interval below is from the config
   sSleep(node.applications_check); // Time for process start up
+  int fenced = 0; // 1 = resources stopped because this node is isolated
 
   command << clear << "date > " << servercfg->log_dir << "/application_resource.log";
   RunSystemCommand(command);
@@ -1613,11 +1705,22 @@ void *CM_applicationsThread::ThreadEntryRoutine(gxThread_t *thread)
     if(servercfg->restart_server) break;
     if(servercfg->kill_server) break;
   
-    if(install_applications() != 0) {
-      LogMessage("ERROR - Application start/watch reported errors");
+    if(servercfg->node_isolated) {
+      // Isolated: stop everything this node runs, once, and start
+      // nothing until the node is connected again.
+      if(!fenced) {
+	LogMessage("This node is isolated, stopping all applications");
+	if(stop_all_applications() == 0) fenced = 1;
+      }
+    }
+    else {
+      fenced = 0;
+      if(install_applications() != 0) {
+	LogMessage("ERROR - Application start/watch reported errors");
+      }
     }
 
-    sSleep(node.applications_check);
+    cm_resource_check_sleep(node.applications_check);
   }  
 
   return (void *)0;

@@ -46,6 +46,7 @@ tar xvf drcm_server.tar.gz -C $RPM_BUILD_ROOT
 %config %attr(0755, root, root) "/etc/drcm/utils/clean_rsync_procs.sh"
 %config %attr(0755, root, root) "/etc/drcm/utils/cm_stat"
 %config %attr(0755, root, root) "/etc/drcm/utils/fs_has_failedover.sh"
+%config %attr(0755, root, root) "/etc/drcm/utils/internet_check.sh"
 %config %attr(0755, root, root) "/etc/drcm/utils/is_backup_fs.sh"
 %config %attr(0755, root, root) "/etc/drcm/utils/is_primary_fs.sh"
 %config %attr(0755, root, root) "/etc/drcm/utils/manual_fs_failover.sh"

@@ -71,6 +71,7 @@ int StopProc();
 void ExitProc(int return_code);
 // Quote a string for use as a single shell word
 gxString ShellQuote(const gxString &s);
+int CMSystem(const char *command);
 int RunSystemCommand(const gxString &input_command);
 int RunSystemCommand(const gxString &input_command, const gxString &user, const gxString &group);
 

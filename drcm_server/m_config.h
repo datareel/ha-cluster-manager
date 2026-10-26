@@ -275,6 +275,19 @@ struct CMconfig {
   gxString witness_endpoint;      // optional quorum witness host:port
   int quorum_required;            // 1 = need witness agreement before takeover
 
+  // Split brain protection for WAN clusters. isolation_check is a script
+  // that exits 0 if this node can still reach the outside world (for
+  // example the internet). When every peer stops answering and the script
+  // fails, this node is the isolated side: it stops its own resources and
+  // will not take over the peers' resources. takeover_check is a script
+  // run with the dead peer's nodename before a takeover; a non-zero exit
+  // means the peer is still alive by some other path, so do not fail over.
+  gxString isolation_check;       // script path, empty = disabled (default)
+  int isolation_check_count;      // missed keep alives before running it
+  int isolation_recover_secs;     // isolated node resumes after the check passes this long
+  gxString takeover_check;        // script path, empty = disabled (default)
+  volatile int node_isolated;     // 1 = this node stood down its resources
+
   gxString my_hostname;
   gxString run_dir, log_dir, spool_dir;
   gxString etc_dir;

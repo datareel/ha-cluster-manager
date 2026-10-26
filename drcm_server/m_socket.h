@@ -163,6 +163,15 @@ int cm_node_exchange(CMnode *node, int cmd, const char *payload, int plen,
 // Prevents a two-node split brain from causing a false failover.
 int cm_have_quorum();
 
+// Split brain protection (see isolation_check and takeover_check in
+// m_config.h). cm_node_is_connected() returns 1 if this node can still
+// reach the outside world or the check is off, 0 if it is isolated.
+// cm_may_take_over() returns 1 if this node may take over the dead
+// peer's resources: it holds quorum, is not isolated, and the
+// takeover_check script (if any) agrees the peer is down.
+int cm_node_is_connected();
+int cm_may_take_over(CMnode *peer);
+
 // Get string value for errno. Returns the error_number provided by caller
 int fd_error_to_string(int error_number, gxString &sbuf);
 

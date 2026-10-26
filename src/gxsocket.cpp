@@ -277,6 +277,12 @@ gxsSocket_t gxSocket::Socket()
 // -1 if the socket cannot be initialized.
 {
   gxsocket = socket(address_family, socket_type, protocol_family);
+#if defined (__UNIX__) && defined (FD_CLOEXEC)
+  // Do not leak sockets into child processes. A resource script or
+  // application started by the server would otherwise hold the
+  // listening port open, and a restarted server could not bind it.
+  if(gxsocket >= 0) fcntl(gxsocket, F_SETFD, FD_CLOEXEC);
+#endif
 
 #if defined (__PCLINT_CHECK__)
   if(gxsocket < 0)
@@ -903,6 +909,10 @@ gxsSocket_t gxSocket::Accept(gxsSocket_t s, gxsSocketAddress *sa)
   gxsSocketLength_t addr_size = (gxsSocketLength_t)sizeof(gxsSocketAddress); 
 
   gxsSocket_t client_socket = accept(s, (struct sockaddr *)sa, &addr_size);
+#if defined (__UNIX__) && defined (FD_CLOEXEC)
+  // Close on exec, see Socket()
+  if(client_socket >= 0) fcntl(client_socket, F_SETFD, FD_CLOEXEC);
+#endif
 
 #if defined (__PCLINT_CHECK__)
   if(client_socket < 0)
@@ -932,6 +942,10 @@ gxsSocket_t gxSocket::Accept()
   gxsSocketLength_t addr_size = (gxsSocketLength_t)sizeof(remote_sin); 
 
   remote_socket = accept(gxsocket, (struct sockaddr *)&remote_sin, &addr_size);
+#if defined (__UNIX__) && defined (FD_CLOEXEC)
+  // Close on exec, see Socket()
+  if(remote_socket >= 0) fcntl(remote_socket, F_SETFD, FD_CLOEXEC);
+#endif
 
 #if defined (__PCLINT_CHECK__)
   if(remote_socket < 0)
