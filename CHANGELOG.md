@@ -276,7 +276,8 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 - `build/makefile`, `env/glibobjs.mak` and `env/glibdeps.mak` now list
   only the 16 bundled library components. Dependency lists were
   regenerated with `g++ -MM`.
-- The bundled DataReel files match DataReel 5.10.
+- The bundled DataReel files were refreshed from the upstream DataReel
+  repository.
 - `.gitignore` now ignores the `drcm_server/drcm_server` binary.
 - The systemd unit is now a native service (`Type=simple`) that runs
   `drcm_server` directly, instead of a `Type=forking` wrapper around
