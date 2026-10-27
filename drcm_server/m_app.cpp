@@ -842,12 +842,13 @@ int load_hash_key()
   }
 
   // The auth files are the cluster's shared secret, so only the owner
-  // should be able to read them
+  // should be able to read them. Group read is allowed for a drcm group
+  // whose members run drcm_server --client (file system sync scripts).
   const char *auth_files[2] = { servercfg->auth_key_file.c_str(), servercfg->sha1_file.c_str() };
   for(int i = 0; i < 2; i++) {
     struct stat st;
-    if(stat(auth_files[i], &st) == 0 && (st.st_mode & (S_IRWXG | S_IRWXO))) {
-      NT_print("WARNING - Auth file can be read by other users, run: chmod 600", auth_files[i]);
+    if(stat(auth_files[i], &st) == 0 && (st.st_mode & (S_IWGRP | S_IXGRP | S_IRWXO))) {
+      NT_print("WARNING - Auth file can be read by other users, run: chmod 600 (or 640 for a drcm group)", auth_files[i]);
     }
   }
 

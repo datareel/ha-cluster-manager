@@ -1,0 +1,5 @@
+#!/bin/bash
+# fakescp [opts] src host:dst
+while [[ "$1" == -* ]]; do case "$1" in -o|-P|-i) shift;; esac; shift; done
+src="$1"; dst="$2"; h="${dst%%:*}"; p="${dst#*:}"
+/usr/local/bin/ssh "$h" "cat > $p" < "$src"

@@ -1,0 +1,2 @@
+FROM registry.access.redhat.com/ubi10/ubi
+RUN dnf -y install rsync procps-ng iproute hostname util-linux python3 && dnf clean all

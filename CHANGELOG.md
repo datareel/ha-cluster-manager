@@ -6,6 +6,21 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 ## [Unreleased]
 
 ### Added
+- 2-way file replication between nodes with no shared LAN (a tunnel or
+  the internet). New `my_cluster_info.sh` settings: `*_FILESYSTEMS_HOST`
+  sets each node's role by `hostname -s` instead of an interface
+  address, `*_FILESYSTEMS_KEEPALIVE_IP` gives the keep alive address
+  for `drcm_server --client` when the `*_FILESYSTEMS_IP` values are ssh
+  host aliases, and `NODE_UP_CHECK=ssh` checks the other node with ssh
+  instead of ICMP ping. `DRCM_SSH_OPTS` now reaches rsync too.
+- `RsyncExclude pattern` for sync lists. Excluded files are not copied
+  and a mirror does not delete them on the other node.
+- `etc/resources/crontab_fs_guard.sh`, a crontab resource that refuses
+  to start on the primary file system node while a failback sync flag
+  exists on either node, so jobs do not run on old data after a fail
+  back. DRCM retries at every `crontabs_check`.
+- `test_apps/fs_sync_test`: podman test of normal sync, fail over,
+  fail back and the cases below (25 checks).
 - Split brain protection for clusters over the internet. A new
   `isolation_check` setting names a script that exits 0 while this node
   can reach the outside world; `etc/utils/internet_check.sh` pings
@@ -44,6 +59,16 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 - `docs/drcm.txt`: the same guide in plain text.
 
 ### Fixed
+- 2-way file replication: a primary that was down for a whole fail
+  over never received the backup's failback flag, so its next normal
+  sync mirrored old data with `--delete` over the changes made on the
+  backup. The primary now checks the backup for a flag before it syncs.
+- Failback sync flags were kept in `/var/run/drcm` (tmpfs) and lost
+  when the backup rebooted during a fail over. They are now in
+  `/var/lib/drcm`, which the RPMs create.
+- The auth file permission warning no longer fires for group read
+  (mode 640), used by a `drcm` group whose members run
+  `drcm_server --client`.
 - Resource scripts and applications started by the server inherited
   the server's blocked signal mask (SIGTERM, SIGINT, SIGHUP and
   others, blocked in 1.42 for the signal thread). They could not be

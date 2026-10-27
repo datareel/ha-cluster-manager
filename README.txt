@@ -26,6 +26,7 @@ Contents:
 * Running Applications
 * Cluster Monitor and Reports
 * 2-way file replication
+* 2-way file replication over the internet or a tunnel
 * Setting up cluster alerts
 * Remaining Work on This Project
 * Support and Bug Tracking
@@ -1028,6 +1029,68 @@ directory.
 
 Edit the "/etc/drcm/my_cluster_conf/*sync_list.sh" config files to
 setup the specific directories to be replicated. 
+
+2-way file replication over the internet or a tunnel:
+----------------------------------------------------
+When the cluster nodes do not share a LAN, for example a node at home
+and a node in a cloud, the replication addresses are not on a local
+interface and ICMP ping does not tell if the other node is up. Set the
+following in "my_cluster_info.sh" on both nodes:
+
+export PRIMARY_FILESYSTEMS_HOST="node1"     # hostname -s of the primary
+export BACKUP_FILESYSTEMS_HOST="node2"      # hostname -s of the backup
+export PRIMARY_FILESYSTEMS_IP="drcm-node1"  # ssh host alias
+export BACKUP_FILESYSTEMS_IP="drcm-node2"   # ssh host alias
+export PRIMARY_FILESYSTEMS_KEEPALIVE_IP="127.0.0.1"
+export BACKUP_FILESYSTEMS_KEEPALIVE_IP="127.0.0.2"
+export NODE_UP_CHECK="ssh"
+
+The _HOST VARs replace the _ETH interface check. The _IP VARs are
+used for ssh, scp and rsync, so each node's backup user needs a
+~/.ssh/config Host entry for both aliases (host name, port and key).
+The _KEEPALIVE_IP VARs are the keep_alive_ip of each node in cm.cfg.
+NODE_UP_CHECK=ssh checks the other node with "ssh <alias> true".
+
+The backup user runs "drcm_server --client" to read the cluster
+status, which needs read access to the auth key and TLS files. Create
+a drcm group for the backup user:
+
+# groupadd -r drcm
+# usermod -a -G drcm <backup user>
+# chgrp -R drcm /etc/drcm/.auth /etc/drcm/tls
+# chmod 750 /etc/drcm/.auth /etc/drcm/tls
+# chmod 640 /etc/drcm/.auth/* /etc/drcm/tls/*
+# chgrp drcm /var/log/drcm /var/lib/drcm
+# chmod 2775 /var/log/drcm /var/lib/drcm
+
+The failback sync flags are kept in /var/lib/drcm, so a reboot of the
+backup during a fail over does not lose them. Before a normal sync the
+primary also checks the backup for a failback flag, and waits while
+there is one. This covers a primary that was down for the whole fail
+over and never received the flag.
+
+A sync list can exclude files from the RsyncMirror and RsyncCopy lines
+that follow:
+
+RsyncExclude "/logs/"
+RsyncExclude "*.lock"
+RsyncMirror /home/user/app_data
+
+Excluded files are not copied, and a mirror does not delete them on
+the other node.
+
+Jobs that use the replicated data can be installed by DRCM with the
+crontab_fs_guard.sh resource instead of crontab.sh:
+
+[CM_CRONTABS]
+app, /etc/drcm/crontabs/app_crons, /etc/cron.d, /etc/drcm/resources/crontab_fs_guard.sh
+
+On the primary file system node it refuses to install the crontab
+while a failback flag exists on either node, so the jobs do not start
+on old data after a fail back. DRCM retries every crontabs_check
+seconds, and the crontab is installed once the backup has synced its
+changes back. If the backup cannot be reached the crontab is
+installed.
 
 Setting up cluster alerts:
 -------------------------

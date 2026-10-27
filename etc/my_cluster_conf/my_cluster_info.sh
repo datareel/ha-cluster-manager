@@ -35,6 +35,19 @@ export BACKUP_FILESYSTEMS_ETH=""
 ## export PRIMARY_FILESYSTEMS_RSYNC_IP=""
 ## export BACKUP_FILESYSTEMS_RSYNC_IP=""
 
+# Nodes that reach each other through a tunnel or over the internet
+# (no shared LAN). Set the role by host name (hostname -s) instead of
+# the _ETH interfaces, set the _IP VARs above to ssh host aliases, and
+# give the DRCM keep_alive_ip of each node for drcm_server --client.
+## export PRIMARY_FILESYSTEMS_HOST=""
+## export BACKUP_FILESYSTEMS_HOST=""
+## export PRIMARY_FILESYSTEMS_KEEPALIVE_IP=""
+## export BACKUP_FILESYSTEMS_KEEPALIVE_IP=""
+# Check the other node with ssh, a ping of a tunnel address always answers
+## export NODE_UP_CHECK="ssh"
+# Ssh options for every ssh, scp and rsync to the other node
+## export DRCM_SSH_OPTS="-o StrictHostKeyChecking=accept-new"
+
 # Check for override file. 
 #
 # NOTE: To create an override file to set the VARs above, do the following:

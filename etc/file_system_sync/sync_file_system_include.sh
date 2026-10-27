@@ -72,8 +72,8 @@ if [ -z "${PRIMARY_FILESYSTEMS_IP}" ]; then
     exit 1
 fi
 
-if [ -z "${PRIMARY_FILESYSTEMS_ETH}" ]; then
-    echo "ERROR - PRIMARY_FILESYSTEMS_ETH not set in ${CFGFILE}"
+if [ -z "${PRIMARY_FILESYSTEMS_ETH}" ] && [ -z "${PRIMARY_FILESYSTEMS_HOST}" ]; then
+    echo "ERROR - PRIMARY_FILESYSTEMS_ETH or PRIMARY_FILESYSTEMS_HOST not set in ${CFGFILE}"
     echo "ERROR - You must set the Ethernet interface for the node with the primary file systems to mirror"
     exit 1
 fi
@@ -84,8 +84,8 @@ if [ -z "${BACKUP_FILESYSTEMS_IP}" ]; then
     exit 1
 fi
 
-if [ -z "${BACKUP_FILESYSTEMS_ETH}" ]; then
-    echo "ERROR - BACKUP_FILESYSTEMS_ETH not set in ${CFGFILE}"
+if [ -z "${BACKUP_FILESYSTEMS_ETH}" ] && [ -z "${BACKUP_FILESYSTEMS_HOST}" ]; then
+    echo "ERROR - BACKUP_FILESYSTEMS_ETH or BACKUP_FILESYSTEMS_HOST not set in ${CFGFILE}"
     echo "ERROR - You must set the Ethernet interface for the node to backup the primary file systems too"
     exit 1
 fi
@@ -111,7 +111,9 @@ fi
 # Setup runtime ENV and check for VAR overrides
 if [ -z "${LOGdir}" ]; then export LOGdir="/var/log/drcm"; fi
 if [ -z "${DRCMdir}" ]; then export DRCMdir="/etc/drcm"; fi
-if [ -z "${VARdir}" ]; then export VARdir="/var/run/drcm"; fi
+# The failback sync flags must survive a reboot, so they are not kept in
+# /var/run (tmpfs)
+if [ -z "${VARdir}" ]; then export VARdir="/var/lib/drcm"; fi
 if [ -z "${RYSNC}" ]; then export RYSNC="rsync"; fi
 if [ -z "${SSH}" ]; then export SSH="ssh"; fi
 # Host keys of the other nodes must be known: accept-new trusts a key
@@ -121,6 +123,10 @@ if [ -z "${SCP}" ]; then export SCP="scp"; fi
 if [ -z "${IP}" ]; then export IP="ip"; fi
 if [ -z "${EXPR}" ]; then export EXPR="expr"; fi
 if [ -z "${DRCM_server}" ]; then export DRCM_server="/usr/sbin/drcm_server"; fi
+# How to tell if the other node is up: ping (ICMP) or ssh. Use ssh when
+# the nodes reach each other through a tunnel, where a ping of the
+# tunnel address answers even when the other node is down.
+if [ -z "${NODE_UP_CHECK}" ]; then export NODE_UP_CHECK="ping"; fi
 
 # Set RSYNC args for directory mirror
 if [ -z "${RYSNCargs}" ]; then export RYSNCargs="-AavPh --delete --sparse --progress --force --stats"; fi
@@ -187,6 +193,31 @@ LOCKfile="${VARdir}/${SERVICENAME}_file_system_sync.lck"
 if [ -z "${MINold}" ]; then export MINold="45"; fi
 
 error_level=0
+RSYNCexcludes=()
+
+function NodeIsUp()
+{
+    if [ "${NODE_UP_CHECK}" == "ssh" ]; then
+	${SSH} ${DRCM_SSH_OPTS} -n -o BatchMode=yes -o ConnectTimeout=15 ${1} true > /dev/null 2>&1
+    else
+	ping -c 15 ${1} > /dev/null 2>&1
+    fi
+}
+
+# Exclude a pattern from the RsyncMirror and RsyncCopy lines that follow
+# it in the sync list. Excluded files are not copied, and a mirror does
+# not delete them on the other node.
+function RsyncExclude()
+{
+    if [ -z "${1}" ]
+	then
+	echo "Bad call to RsyncExclude function" | tee -a ${LOGfile}
+	echo "Usage: RsyncExclude pattern" | tee -a ${LOGfile}
+	error_level=1
+	return
+    fi
+    RSYNCexcludes+=("--exclude=${1}")
+}
 
 function RsyncMirror()
 {
@@ -209,7 +240,7 @@ function RsyncMirror()
     fi
 
     echo "Syncing ${1} with rsync mirror"  | tee -a ${LOGfile}
-    ${RYSNC} ${RYSNCargs} -e ${SSH} ${1}/. ${BACKUPNODE}:${1}/. >> ${LOGfile} 2>&1
+    ${RYSNC} ${RYSNCargs} "${RSYNCexcludes[@]}" -e "${SSH} ${DRCM_SSH_OPTS}" ${1}/. ${BACKUPNODE}:${1}/. >> ${LOGfile} 2>&1
     if [ $? -ne 0 ]
 	then
 	echo "${1} mirrored backup failed" | tee -a ${LOGfile}
@@ -241,7 +272,7 @@ function RsyncCopy()
     fi
 
     echo "Syncing up ${1} with rsync copy" | tee -a ${LOGfile}
-    ${RYSNC} ${RYSNCcopyargs} -e ${SSH} ${1}/. ${BACKUPNODE}:${1}/. >> ${LOGfile} 2>&1
+    ${RYSNC} ${RYSNCcopyargs} "${RSYNCexcludes[@]}" -e "${SSH} ${DRCM_SSH_OPTS}" ${1}/. ${BACKUPNODE}:${1}/. >> ${LOGfile} 2>&1
     if [ $? -ne 0 ]
 	then
 	echo "${1} backup failed" | tee -a ${LOGfile}
@@ -345,7 +376,7 @@ if [ "${hasfailedover}" == "TRUE" ]
 
     echo "Signaling that a failback sync is needed when normal cluster operation is resumed"  | tee -a ${LOGfile}
     date +%s > ${VARdir}/${SERVICENAME}_failback_sync_flag
-    ping -c 15 ${FAILBACKNODE} > /dev/null 2>&1
+    NodeIsUp ${FAILBACKNODE}
     if [ $? -ne 0 ]
 	then
 	echo "Primary cluster node is still down" | tee -a ${LOGfile}
@@ -374,7 +405,7 @@ if [ "${BACKUPNODE}" == "${FAILBACKNODE}" ]
 
     echo "We are going back to the primary cluster node ${FAILBACKNODE}" | tee -a ${LOGfile}
     echo "Checking to see if primary cluster node is up and acceping pings" | tee -a ${LOGfile}
-    ping -c 15 ${FAILBACKNODE} > /dev/null 2>&1
+    NodeIsUp ${FAILBACKNODE}
     if [ $? -ne 0 ]
 	then
 	echo "Primary cluster node is still down" | tee -a ${LOGfile}
@@ -383,6 +414,29 @@ if [ "${BACKUPNODE}" == "${FAILBACKNODE}" ]
 	exit 1
     fi
 else
+    # The backup may hold a failback flag the primary never received,
+    # when the primary was down for the whole fail over. Pushing now
+    # would overwrite the changes made on the backup, so wait for the
+    # backup to sync them back.
+    ${SSH} ${DRCM_SSH_OPTS} -n ${BACKUPNODE} "if [ -e ${VARdir}/${SERVICENAME}_failback_sync_flag ]; then cat ${VARdir}/${SERVICENAME}_failback_sync_flag; else echo NONE; fi" > ${VARdir}/${SERVICENAME}_remote_flag_check 2>> ${LOGfile}
+    if [ $? -ne 0 ]
+	then
+	echo "Cannot check ${BACKUPNODE} for a failback sync flag" | tee -a ${LOGfile}
+	echo "No file sync to ${BACKUPNODE} will be performed" | tee -a ${LOGfile}
+	rm -f ${VARdir}/${SERVICENAME}_remote_flag_check
+	RemoveLockFile
+	exit 1
+    fi
+    remoteflag=$(head -1 ${VARdir}/${SERVICENAME}_remote_flag_check)
+    rm -f ${VARdir}/${SERVICENAME}_remote_flag_check
+    if [ "${remoteflag}" != "NONE" ]
+	then
+	echo "${BACKUPNODE} has a failback sync flag for ${SERVICENAME}" | tee -a ${LOGfile}
+	echo "Skipping file sync until secondary node updates primary file system" | tee -a ${LOGfile}
+	echo "${remoteflag}" > ${VARdir}/${SERVICENAME}_failback_sync_flag
+	RemoveLockFile
+	exit 0
+    fi
     echo "Normal cluster operations, syncing to failover node ${FAILOVERNODE}" | tee -a ${LOGfile}
 fi
 echo "Starting file sync at $datetime UTC" | tee -a ${LOGfile}

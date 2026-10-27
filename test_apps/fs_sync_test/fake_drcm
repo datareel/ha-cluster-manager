@@ -1,0 +1,8 @@
+#!/bin/bash
+# Test stand-in for drcm_server --client: /shared/state holds "ws=up aws=up"
+. /shared/state
+case "$*" in
+ *cm_stat*) if [ "$ws" == up ] && [ "$aws" == up ]; then echo "Cluster status: HEALTHY"; else echo "Cluster status: DEGRADED"; fi; exit 0;;
+ *-n127.0.0.1*) [ "$ws" == up ];;
+ *-n127.0.0.2*) [ "$aws" == up ];;
+esac
