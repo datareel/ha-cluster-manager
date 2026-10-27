@@ -1052,8 +1052,9 @@ The _KEEPALIVE_IP VARs are the keep_alive_ip of each node in cm.cfg.
 NODE_UP_CHECK=ssh checks the other node with "ssh <alias> true".
 
 The backup user runs "drcm_server --client" to read the cluster
-status, which needs read access to the auth key and TLS files. Create
-a drcm group for the backup user:
+status. The client runs for root or for members of the drcm group,
+which also needs read access to the auth key and TLS files. Create
+the drcm group for the backup user:
 
 # groupadd -r drcm
 # usermod -a -G drcm <backup user>

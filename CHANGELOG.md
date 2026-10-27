@@ -66,9 +66,10 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 - Failback sync flags were kept in `/var/run/drcm` (tmpfs) and lost
   when the backup rebooted during a fail over. They are now in
   `/var/lib/drcm`, which the RPMs create.
-- The auth file permission warning no longer fires for group read
-  (mode 640), used by a `drcm` group whose members run
-  `drcm_server --client`.
+- `drcm_server --client` refused to run unless started by the cluster
+  user (root), so the sync scripts' backup user could not read the
+  cluster status. Members of a `drcm` group may now run the client,
+  and the auth file permission warning allows group read (mode 640).
 - Resource scripts and applications started by the server inherited
   the server's blocked signal mask (SIGTERM, SIGINT, SIGHUP and
   others, blocked in 1.42 for the signal thread). They could not be

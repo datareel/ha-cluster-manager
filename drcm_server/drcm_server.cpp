@@ -35,6 +35,7 @@ Datareel cluster manager server.
 #include "gxdlcode.h"
 
 #include "drcm_server.h"
+#include <grp.h>
 
 int main(int argc, char **argv)
 {
@@ -402,6 +403,22 @@ int run_server()
   return 0;
 }
 
+// Members of the drcm group can run the client without being the
+// cluster user. The group gives read access to the auth key and TLS
+// files, for example for the file system sync scripts.
+static int in_drcm_group()
+{
+  struct group *gr = getgrnam("drcm");
+  if(!gr) return 0;
+  if(getegid() == gr->gr_gid) return 1;
+  gid_t groups[256];
+  int n = getgroups(256, groups);
+  for(int i = 0; i < n; i++) {
+    if(groups[i] == gr->gr_gid) return 1;
+  }
+  return 0;
+}
+
 int run_client()
 {
   gxString sbuf;
@@ -443,7 +460,10 @@ int run_client()
 
   gxString message, command;
   gxString user = "root";
-  if(servercfg->cluster_user == user.c_str()) {
+  if(in_drcm_group()) {
+    // Allowed, see in_drcm_group()
+  }
+  else if(servercfg->cluster_user == user.c_str()) {
     if(geteuid() != 0) {
       servercfg->verbose = 1;
       NT_print("Config file set to run CM as root");
