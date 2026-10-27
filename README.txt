@@ -1080,6 +1080,20 @@ RsyncMirror /home/user/app_data
 Excluded files are not copied, and a mirror does not delete them on
 the other node.
 
+3-way sync: a third node, for example a web hosting account, can
+keep an emergency copy. It needs ssh and rsync, not DRCM:
+
+export TERTIARY_FILESYSTEMS_IP="drcm-third"          # ssh host alias
+export TERTIARY_FILESYSTEMS_DIR="/home/user/drcm_backup"
+export TERTIARY_SYNC_MINUTES="15"
+
+The active node sends the copy: the primary in normal operation, even
+when the backup node is down, and the backup while the cluster has
+failed over. Nothing is sent while a failback sync is pending. Each
+directory lands at TERTIARY_FILESYSTEMS_DIR plus its own path, with
+the same RsyncMirror, RsyncCopy and RsyncExclude lines. Restoring
+from the third node is done by hand with rsync.
+
 Jobs that use the replicated data can be installed by DRCM with the
 crontab_fs_guard.sh resource instead of crontab.sh:
 

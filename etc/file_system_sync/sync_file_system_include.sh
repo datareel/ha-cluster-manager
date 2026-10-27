@@ -195,6 +195,16 @@ if [ -z "${MINold}" ]; then export MINold="45"; fi
 error_level=0
 RSYNCexcludes=()
 
+# 3-way sync: an optional third node (no DRCM needed there) gets a copy
+# from whichever cluster node is active, for an emergency backup.
+# TERTIARY_FILESYSTEMS_IP is its ssh host or alias, TERTIARY_FILESYSTEMS_DIR
+# a path prefix there (the source path is added to it), and
+# TERTIARY_SYNC_MINUTES the least time between copies (0 = every run).
+if [ -z "${TERTIARY_SYNC_MINUTES}" ]; then export TERTIARY_SYNC_MINUTES="0"; fi
+MAINsync=1
+THIRDsync=0
+third_errors=0
+
 function NodeIsUp()
 {
     if [ "${NODE_UP_CHECK}" == "ssh" ]; then
@@ -219,6 +229,46 @@ function RsyncExclude()
     RSYNCexcludes+=("--exclude=${1}")
 }
 
+# RsyncTo mirror|copy node source_dir dest_dir
+function RsyncTo()
+{
+    local args="${RYSNCargs}"
+    local what="mirrored backup"
+    if [ "${1}" == "copy" ]; then args="${RYSNCcopyargs}"; what="backup"; fi
+
+    ${SSH} ${DRCM_SSH_OPTS} -n ${2} mkdir -p ${4}  >> ${LOGfile} 2>&1
+    if [ $? -ne 0 ]
+	then
+	echo "SSH command to ${2} failed" | tee -a ${LOGfile}
+	echo "${3} ${what} to ${2} failed" | tee -a ${LOGfile}
+	echo "${3} was not backed up to ${2}"  | tee -a ${LOGfile}
+	error_level=1
+	return 1
+    fi
+
+    echo "Syncing ${3} to ${2}:${4} with rsync ${1}"  | tee -a ${LOGfile}
+    ${RYSNC} ${args} "${RSYNCexcludes[@]}" -e "${SSH} ${DRCM_SSH_OPTS}" ${3}/. ${2}:${4}/. >> ${LOGfile} 2>&1
+    if [ $? -ne 0 ]
+	then
+	echo "${3} ${what} to ${2} failed" | tee -a ${LOGfile}
+	echo "${3} was not backed up to ${2}"  | tee -a ${LOGfile}
+	error_level=1
+	return 1
+    fi
+    echo "${3} ${what} to ${2} complete" | tee -a ${LOGfile}
+    return 0
+}
+
+# Sync one directory to the other cluster node and, for a 3-way sync,
+# to the third node
+function RsyncDir()
+{
+    if [ "${MAINsync}" == "1" ]; then RsyncTo ${1} ${BACKUPNODE} ${2} ${2}; fi
+    if [ "${THIRDsync}" == "1" ]; then
+	RsyncTo ${1} ${TERTIARY_FILESYSTEMS_IP} ${2} ${TERTIARY_FILESYSTEMS_DIR}${2} || third_errors=1
+    fi
+}
+
 function RsyncMirror()
 {
     if [ -z ${1} ]
@@ -228,27 +278,7 @@ function RsyncMirror()
 	error_level=1
 	return
     fi
-
-    ${SSH} ${DRCM_SSH_OPTS} -n ${BACKUPNODE} mkdir -p ${1}  >> ${LOGfile} 2>&1
-    if [ $? -ne 0 ]
-	then
-	echo "SSH command to ${BACKUPNODE} failed" | tee -a ${LOGfile}
-	echo "${1} mirrored backup failed" | tee -a ${LOGfile}
-	echo "${1} was not backed up"  | tee -a ${LOGfile}
-	error_level=1
-	return
-    fi
-
-    echo "Syncing ${1} with rsync mirror"  | tee -a ${LOGfile}
-    ${RYSNC} ${RYSNCargs} "${RSYNCexcludes[@]}" -e "${SSH} ${DRCM_SSH_OPTS}" ${1}/. ${BACKUPNODE}:${1}/. >> ${LOGfile} 2>&1
-    if [ $? -ne 0 ]
-	then
-	echo "${1} mirrored backup failed" | tee -a ${LOGfile}
-	echo "${1} was not backed up"  | tee -a ${LOGfile}
-	error_level=1
-	return
-    fi
-    echo "${1} mirrored backup complete" | tee -a ${LOGfile}
+    RsyncDir mirror ${1}
 }
 
 function RsyncCopy()
@@ -260,27 +290,56 @@ function RsyncCopy()
 	error_level=1
 	return
     fi
+    RsyncDir copy ${1}
+}
 
-    ${SSH} ${DRCM_SSH_OPTS} -n ${BACKUPNODE} mkdir -p ${1}  >> ${LOGfile} 2>&1
-    if [ $? -ne 0 ]
+function SourceSyncList()
+{
+    if [ -e ${DRCMdir}/my_cluster_conf/${SERVICENAME}_sync_list.sh ]
 	then
-	echo "SSH command to ${BACKUPNODE} failed" | tee -a ${LOGfile}
-	echo "${1} backup failed" | tee -a ${LOGfile}
-	echo "${1} was not backed up" | tee -a ${LOGfile}
-	error_level=1
-	return
+	. ${DRCMdir}/my_cluster_conf/${SERVICENAME}_sync_list.sh
+	# Check for host specific override config
+	if [ -f ${DRCMdir}/my_cluster_conf/$(hostname -s)_${SERVICENAME}_sync_list.sh ]
+	then
+	    . ${DRCMdir}/my_cluster_conf/$(hostname -s)_${SERVICENAME}_sync_list.sh
+	fi
+	return 0
     fi
+    return 1
+}
 
-    echo "Syncing up ${1} with rsync copy" | tee -a ${LOGfile}
-    ${RYSNC} ${RYSNCcopyargs} "${RSYNCexcludes[@]}" -e "${SSH} ${DRCM_SSH_OPTS}" ${1}/. ${BACKUPNODE}:${1}/. >> ${LOGfile} 2>&1
-    if [ $? -ne 0 ]
-	then
-	echo "${1} backup failed" | tee -a ${LOGfile}
-	echo "${1} was not backed up" | tee -a ${LOGfile}
-	error_level=1
-	return
+# 3-way sync: is a copy to the third node due on this run?
+function TertiaryDue()
+{
+    if [ -z "${TERTIARY_FILESYSTEMS_IP}" ]; then return 1; fi
+    if [ "${TERTIARY_SYNC_MINUTES}" -gt 0 ] && [ -f ${VARdir}/${SERVICENAME}_tertiary_last_sync ]; then
+	local last=$(cat ${VARdir}/${SERVICENAME}_tertiary_last_sync)
+	local now=$(date +%s)
+	if [ $((now - last)) -lt $((TERTIARY_SYNC_MINUTES * 60)) ]; then
+	    echo "3-way sync to ${TERTIARY_FILESYSTEMS_IP} not due yet (every ${TERTIARY_SYNC_MINUTES} minutes)" | tee -a ${LOGfile}
+	    return 1
+	fi
     fi
-    echo "${1} backup complete" | tee -a  ${LOGfile}
+    return 0
+}
+
+function TertiaryDone()
+{
+    if [ "${THIRDsync}" == "1" ] && [ "${third_errors}" == "0" ]; then
+	date +%s > ${VARdir}/${SERVICENAME}_tertiary_last_sync
+    fi
+}
+
+# Sync only to the third node, when this node is the active one but
+# cannot sync with the other cluster node
+function TertiaryOnly()
+{
+    if ! TertiaryDue; then return; fi
+    echo "3-way sync to ${TERTIARY_FILESYSTEMS_IP} only" | tee -a ${LOGfile}
+    MAINsync=0
+    THIRDsync=1
+    SourceSyncList
+    TertiaryDone
 }
 
 echo "Logging output to ${LOGfile}"
@@ -387,6 +446,8 @@ if [ "${hasfailedover}" == "TRUE" ]
 	${SSH} ${DRCM_SSH_OPTS} ${FAILBACKNODE} mkdir -p ${VARdir} >> ${LOGfile} 2>&1
 	${SCP} ${DRCM_SSH_OPTS} ${VARdir}/${SERVICENAME}_failback_sync_flag ${FAILBACKNODE}:${VARdir}/${SERVICENAME}_failback_sync_flag
     fi
+    # This node now runs the jobs, so it keeps the third node current
+    TertiaryOnly
     RemoveLockFile
     exit 0
 fi
@@ -424,6 +485,7 @@ else
 	echo "Cannot check ${BACKUPNODE} for a failback sync flag" | tee -a ${LOGfile}
 	echo "No file sync to ${BACKUPNODE} will be performed" | tee -a ${LOGfile}
 	rm -f ${VARdir}/${SERVICENAME}_remote_flag_check
+	TertiaryOnly
 	RemoveLockFile
 	exit 1
     fi
@@ -438,6 +500,10 @@ else
 	exit 0
     fi
     echo "Normal cluster operations, syncing to failover node ${FAILOVERNODE}" | tee -a ${LOGfile}
+    if TertiaryDue; then
+	echo "3-way sync, also syncing to ${TERTIARY_FILESYSTEMS_IP}" | tee -a ${LOGfile}
+	THIRDsync=1
+    fi
 fi
 echo "Starting file sync at $datetime UTC" | tee -a ${LOGfile}
 
@@ -449,14 +515,9 @@ echo "Starting file system sync sync $datetime UTC" | tee -a ${LOGfile}
 START=$(date +%s)
 
 # Source the config file for this host
-if [ -e ${DRCMdir}/my_cluster_conf/${SERVICENAME}_sync_list.sh ]
+if SourceSyncList
     then
-    . ${DRCMdir}/my_cluster_conf/${SERVICENAME}_sync_list.sh
-    # Check for host specific override config
-    if [ -f ${DRCMdir}/my_cluster_conf/$(hostname -s)_${SERVICENAME}_sync_list.sh ]
-    then
-	. ${DRCMdir}/my_cluster_conf/$(hostname -s)_${SERVICENAME}_sync_list.sh
-    fi
+    TertiaryDone
 else
     echo "WARNING - No file system sync preformed" | tee -a ${LOGfile}
     echo "Missing ${DRCMdir}/my_cluster_conf/${SERVICENAME}_sync_list.sh, will create default and exit" | tee -a ${LOGfile}

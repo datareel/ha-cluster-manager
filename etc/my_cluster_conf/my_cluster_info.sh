@@ -48,6 +48,13 @@ export BACKUP_FILESYSTEMS_ETH=""
 # Ssh options for every ssh, scp and rsync to the other node
 ## export DRCM_SSH_OPTS="-o StrictHostKeyChecking=accept-new"
 
+# 3-way sync: a third node, with no DRCM, gets an emergency copy from
+# whichever cluster node is active. The source path is added to
+# TERTIARY_FILESYSTEMS_DIR. 0 minutes = copy on every sync run.
+## export TERTIARY_FILESYSTEMS_IP=""
+## export TERTIARY_FILESYSTEMS_DIR=""
+## export TERTIARY_SYNC_MINUTES="0"
+
 # Check for override file. 
 #
 # NOTE: To create an override file to set the VARs above, do the following:

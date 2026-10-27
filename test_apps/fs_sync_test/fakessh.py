@@ -2,7 +2,7 @@
 # Test stand-in for ssh (client) and sshd (server: fakessh.py --serve)
 import sys, os, socket, struct, subprocess, threading, json
 PORT = 2222
-ALIASES = {"drcm-ws": "ws", "drcm-aws": "aws"}
+ALIASES = {"drcm-ws": "ws", "drcm-aws": "aws", "drcm-hg": "hg"}
 def send(sock, lock, t, data):
     with lock: sock.sendall(struct.pack("!BI", t, len(data)) + data)
 def recvall(sock, n):

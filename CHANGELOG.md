@@ -13,6 +13,10 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   for `drcm_server --client` when the `*_FILESYSTEMS_IP` values are ssh
   host aliases, and `NODE_UP_CHECK=ssh` checks the other node with ssh
   instead of ICMP ping. `DRCM_SSH_OPTS` now reaches rsync too.
+- 3-way sync: `TERTIARY_FILESYSTEMS_IP`, `TERTIARY_FILESYSTEMS_DIR`
+  and `TERTIARY_SYNC_MINUTES` add a third node (ssh and rsync only, no
+  DRCM) that gets a copy from whichever cluster node is active,
+  including while the other cluster node is down.
 - `RsyncExclude pattern` for sync lists. Excluded files are not copied
   and a mirror does not delete them on the other node.
 - `etc/resources/crontab_fs_guard.sh`, a crontab resource that refuses
@@ -20,7 +24,7 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   exists on either node, so jobs do not run on old data after a fail
   back. DRCM retries at every `crontabs_check`.
 - `test_apps/fs_sync_test`: podman test of normal sync, fail over,
-  fail back and the cases below (25 checks).
+  fail back, 3-way sync and the cases below.
 - Split brain protection for clusters over the internet. A new
   `isolation_check` setting names a script that exits 0 while this node
   can reach the outside world; `etc/utils/internet_check.sh` pings
