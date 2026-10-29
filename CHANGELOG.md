@@ -5,7 +5,9 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
-Version 1.43. 1.43 and 1.42 nodes work together in one cluster (same
+## [1.43] - 2026-10-29
+
+1.43 and 1.42 nodes work together in one cluster (same
 v2 frames), but only 1.43 peers take over a node in standby.
 
 ### Added
@@ -37,14 +39,6 @@ v2 frames), but only 1.43 peers take over a node in standby.
   restart and reboot in standby, unstandby, refusal, `--force`, a
   rejected remote request and a mixed 1.42/1.43 cluster, with an
   event log analysis of every resource move (gap and overlap).
-
-### Changed
-- Resource threads now wake when a peer's take over flag changes
-  instead of waiting out their check interval, after 5 seconds per
-  position of the node in the config, so a takeover or failback starts
-  in seconds and backup nodes do not start the same resource at once.
-- The file systems thread uses the same interruptible sleep as the
-  other resource threads.
 - 2-way file replication between nodes with no shared LAN (a tunnel or
   the internet). New `my_cluster_info.sh` settings: `*_FILESYSTEMS_HOST`
   sets each node's role by `hostname -s` instead of an interface
@@ -100,6 +94,14 @@ v2 frames), but only 1.43 peers take over a node in standby.
   Elastic IP and route-table VIP modes, `migrate_cfg.py` and
   `drcm_gui.py`, a two-node walkthrough and troubleshooting.
 - `docs/drcm.txt`: the same guide in plain text.
+
+### Changed
+- Resource threads now wake when a peer's take over flag changes
+  instead of waiting out their check interval, after 5 seconds per
+  position of the node in the config, so a takeover or failback starts
+  in seconds and backup nodes do not start the same resource at once.
+- The file systems thread uses the same interruptible sleep as the
+  other resource threads.
 
 ### Fixed
 - When a node stopped all its resources (isolation, standby or
