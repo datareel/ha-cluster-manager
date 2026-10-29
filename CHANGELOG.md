@@ -5,7 +5,46 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+Version 1.43. 1.43 and 1.42 nodes work together in one cluster (same
+v2 frames), but only 1.43 peers take over a node in standby.
+
 ### Added
+- Node standby for maintenance and application failover tests.
+  `drcm_server --client --command=standby` (console: `standby`) makes
+  the node stop its crontabs, services and applications, then its
+  floating IPs and file systems, and any backup resources it runs for
+  other nodes. Once everything is stopped, the node reports standby in
+  its keep alive replies (an ACK payload that 1.42 ignores) and lists
+  `node:standby` in its stats (`node:releasing` while stopping). Its
+  peers take over at once, with no `dead_node_count` wait and no
+  quorum, isolation or `takeover_check` gate, since the node answers.
+  The command refuses when no active 1.43 peer that backs up any of
+  the node's resources answers; `--force` (console: `standby force`)
+  overrides. The client prints when each resource starts on a peer.
+- The standby state is kept in the new `standby_file` setting (default
+  `/var/lib/drcm/standby`), so a node that restarts or reboots in
+  standby stays in standby and its peers keep its resources.
+- `drcm_server --client --command=unstandby` returns the node to
+  service. The node starts each resource only after no peer still
+  runs a backup copy of it (up to 180 seconds, then it starts anyway
+  with a warning), so a resource never runs on two nodes at once.
+- Standby and unstandby requests are new authenticated frames
+  (`CM_CMD_STANDBY`, `CM_CMD_UNSTANDBY`) accepted only from the node's
+  own addresses, naming its hostname, and no older than 300 seconds.
+- `cm_stat` shows a node in standby as `Standby` (or `Releasing`) and
+  counts standby nodes in the cluster health section.
+- `test_apps/standby_test`: three node podman test of standby,
+  restart and reboot in standby, unstandby, refusal, `--force`, a
+  rejected remote request and a mixed 1.42/1.43 cluster, with an
+  event log analysis of every resource move (gap and overlap).
+
+### Changed
+- Resource threads now wake when a peer's take over flag changes
+  instead of waiting out their check interval, after 5 seconds per
+  position of the node in the config, so a takeover or failback starts
+  in seconds and backup nodes do not start the same resource at once.
+- The file systems thread uses the same interruptible sleep as the
+  other resource threads.
 - 2-way file replication between nodes with no shared LAN (a tunnel or
   the internet). New `my_cluster_info.sh` settings: `*_FILESYSTEMS_HOST`
   sets each node's role by `hostname -s` instead of an interface
@@ -63,6 +102,9 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 - `docs/drcm.txt`: the same guide in plain text.
 
 ### Fixed
+- When a node stopped all its resources (isolation, standby or
+  shutdown), their entries stayed in its stats, so `rstats` and
+  `cm_stat` still showed them running. They are now removed.
 - 2-way file replication: a primary that was down for a whole fail
   over never received the backup's failback flag, so its next normal
   sync mirrored old data with `--delete` over the changes made on the

@@ -35,6 +35,7 @@ Datareel cluster manager server.
 #include "gxdlcode.h"
 
 #include "drcm_server.h"
+#include "m_standby.h"
 #include <grp.h>
 
 int main(int argc, char **argv)
@@ -193,11 +194,14 @@ int run_server()
   // Run node checks here, only check VARs that would cause server to crash
   gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
   CMnode *this_node = 0;
+  int node_index = 0;
   while(ptr) {
     if(ptr->data->hostname == servercfg->my_hostname) {
       this_node = ptr->data;
       has_hostname = 1;
+      servercfg->my_node_index = node_index;
     }
+    node_index++;
     ptr = ptr->next;
   }
 
@@ -260,6 +264,13 @@ int run_server()
     NT_print("ERROR - Fatal error starting log thread");
     NT_print(servercfg->log_thread->ThreadExceptionMessage());
     return 1;
+  }
+
+  // Stay in standby across a restart until an unstandby. Load it before
+  // the keep alive server answers, so peers never see this node as
+  // active and fail its resources back to it.
+  if(cm_standby_load()) {
+    NT_print("Starting in standby, found", servercfg->standby_file.c_str());
   }
 
   while(--retries) {

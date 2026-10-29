@@ -38,6 +38,7 @@ Extra socket functions for Datareel cluster manager.
 #include <time.h>
 #include <sys/time.h>
 #include "m_socket.h"
+#include "m_standby.h"
 #include "m_tls.h"
 
 // Process-wide send sequence counter for v2 frames. Incremented
@@ -855,6 +856,9 @@ int send_keep_alive(CMnode *n, int &error_level, int timeout_secs, int timeout_u
     return 1;
   }
 
+  // 1.43 and later nodes report their state (active or standby) in the
+  // reply; 1.42 sends none
+  n->peer_state = cm_reply_peer_state(reply);
   return 0;
 }
 // ----------------------------------------------------------- // 

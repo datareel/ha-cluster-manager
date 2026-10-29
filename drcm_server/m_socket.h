@@ -51,7 +51,9 @@ enum CM_CMD { // Cluster Manager Commands
   CM_CMD_ACK,
   CM_CMD_PING,
   CM_CMD_KEEPALIVE,
-  CM_CMD_GETSTATS
+  CM_CMD_GETSTATS,
+  CM_CMD_STANDBY,   // 1.43: local client asks this node to go to standby
+  CM_CMD_UNSTANDBY  // 1.43: local client asks this node to leave standby
 };
 
 const char DEFAULT_DATAGRAM_FILL = 'X';

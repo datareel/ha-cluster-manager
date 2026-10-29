@@ -1,4 +1,4 @@
-DataReel Cluster Manager (DRCM) 1.42 Administrator Guide
+DataReel Cluster Manager (DRCM) 1.43 Administrator Guide
 Copyright (c) DataReel Software Development
 
 Plain text companion of docs/drcm.html. README.txt and CHANGELOG.md in
@@ -119,7 +119,7 @@ RPM install:
 Prebuilt RPMs for RHEL 8, 9 and 10 are on the downloads page,
 datareel.com/downloads/drcm.
 
-    $ sudo dnf -y install ./drcm_server-1.42-1.el9.x86_64.x86_64.rpm
+    $ sudo dnf -y install ./drcm_server-1.43-1.el9.x86_64.x86_64.rpm
     $ rpm -ql drcm_server          # files
     $ rpm -qc drcm_server          # configs
     $ sudo dnf -y remove drcm_server
@@ -129,12 +129,12 @@ Build your own RPM:
 The build needs gcc-c++, make, rpm-build and openssl-devel.
 
     $ cd $HOME; mkdir -pv git; cd $HOME/git
-    $ wget https://datareel.com/downloads/drcm/ha-cluster-manager-1.42.tar.gz
-    $ tar xzf ha-cluster-manager-1.42.tar.gz
-    $ mv ha-cluster-manager-1.42 ha-cluster-manager
+    $ wget https://datareel.com/downloads/drcm/ha-cluster-manager-1.43.tar.gz
+    $ tar xzf ha-cluster-manager-1.43.tar.gz
+    $ mv ha-cluster-manager-1.43 ha-cluster-manager
     $ cd $HOME/git/ha-cluster-manager/rpm_builder
     $ ./make_rhel10_rpm.sh         # or make_rhel9_rpm.sh, make_rhel8_rpm.sh
-    $ sudo dnf -y install $HOME/rpmbuild/RPMS/x86_64/drcm_server-1.42-1.el10.x86_64.x86_64.rpm
+    $ sudo dnf -y install $HOME/rpmbuild/RPMS/x86_64/drcm_server-1.43-1.el10.x86_64.x86_64.rpm
 
 Build from source:
 
@@ -236,6 +236,10 @@ The file has a [CM_SERVER] section, five resource sections and one
   dead_node_count
       Meaning: Failed keep alives in a row before a node is declared
       dead. Each node has its own count.
+  standby_file
+      Default: /var/lib/drcm/standby
+      Meaning: Present while this node is in standby (see section 11).
+      Full path. The directory is created if missing.
   run_dir, log_dir, spool_dir
       Default: /var/run/drcm, /var/log/drcm, /var/spool/drcm
       Meaning: Process directories.
@@ -637,6 +641,11 @@ Client commands:
       Raw per-node stats for custom reports. -n"nodename" for one node.
   drcm_server --client --command=printcfg
       The loaded cluster configuration.
+  drcm_server --client --command=standby [--force]
+      Puts this node in standby: its peers take over its resources.
+      See Standby below.
+  drcm_server --client --command=unstandby
+      Returns this node to service; it takes its resources back.
   drcm_server --client
       Interactive console; type help.
 
@@ -654,6 +663,58 @@ Logs:
     # tail -f /var/log/drcm/drcm.log
     # tail -f /var/log/drcm/ipv4addr_resource.log     # floating IP scripts (IPv4 and IPv6)
     # journalctl -u drcm_server -f
+
+Standby (maintenance and failover testing):
+
+Standby moves a node's resources to its backup nodes while DRCM keeps
+running on it, for maintenance or to test that applications fail over.
+Run the commands on the node itself, as root or a drcm group member:
+
+    # drcm_server --client --command=standby
+    # drcm_server --client --command=cm_stat      # the node shows Standby
+    # drcm_server --client --command=unstandby
+
+standby first checks the peers. It refuses, and changes nothing, if no
+active peer with standby support (1.43 or later) answers, or if no
+answering peer backs up any of this node's resources. --force (or
+"standby force" in the console) skips that check; the resources then
+stop and run nowhere until unstandby. Resources that no answering peer
+backs up are listed as a warning.
+
+In standby the node stops its crontabs, services and applications,
+then its floating IPs and file systems, and any resources it runs as a
+backup for other nodes. As when DRCM stops, keep_filesystems=1 keeps
+the node's own file systems mounted; keep_services and
+keep_applications do not apply, standby always stops them. When every
+resource is stopped, the node reports standby in its keep alive
+replies and lists node:standby in rstats (node:releasing while it is
+still stopping). Its peers then take over at once, without waiting for
+dead_node_count missed keep alives and without the quorum, isolation
+and takeover_check gates, because the node is reachable and asked for
+it. The client waits and prints when each resource starts on a peer.
+
+The standby state is kept in standby_file (default
+/var/lib/drcm/standby). A node that restarts or reboots while the file
+exists comes up in standby, and its peers keep its resources; the peers
+do not fail them back.
+
+unstandby removes the file. The peers stop their backup copies of the
+node's resources (after confirming the node for about 10 seconds), and
+the node starts each resource only once no peer still runs it, so a
+resource never runs on two nodes at once. If a peer has not released a
+resource after 180 seconds the node starts it anyway and logs a
+warning. The client prints when each resource is running again.
+
+The standby and unstandby requests are accepted only from the node
+itself (a loopback or its own keep alive address) and must name its
+hostname. They are authenticated cluster frames, so the client needs
+the auth key. If a node stays in standby and no peer answers, it logs a
+warning that its resources may not be running anywhere.
+
+Mixed versions: 1.42 nodes ignore the standby state, so they see a node
+in standby as alive and never take over its resources. Upgrade the
+backup nodes to 1.43 before using standby. 1.43 and 1.42 nodes
+otherwise work together in one cluster.
 
 Testing failover and failback:
 
@@ -858,7 +919,8 @@ calling send_alert "subject" "body".
 16. Troubleshooting and support
 -------------------------------
   Nodes see each other as dead after an upgrade
-      All nodes must run 1.42. Older nodes do not speak v2 frames.
+      All nodes must run 1.42 or later. Older nodes do not speak v2
+      frames.
   Ping fails, frames rejected
       Same authkey on every node (compare authkey.sha1), firewalld rules
       for the UDP/TCP ports, correct keep_alive_ip,
@@ -893,4 +955,4 @@ Support:
 * Questions and bug reports: datareel.com/contact.php
 * Release notes: CHANGELOG.md in the source distribution.
 
-DataReel Cluster Manager 1.42, GNU General Public License.
+DataReel Cluster Manager 1.43, GNU General Public License.

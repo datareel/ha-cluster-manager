@@ -35,6 +35,7 @@ Application classes and functions for Datareel cluster manager.
 #include "gxdlcode.h"
 #include "drcm_server.h"
 #include "m_app.h"
+#include "m_standby.h"
 
 #include <ctype.h>
 #include <sys/stat.h>
@@ -97,6 +98,7 @@ void PrintGlobalConfig()
   else {
     NT_print("Verbose mode is disabled");
   }
+  NT_print("Standby file", servercfg->standby_file.c_str());
 
   sbuf.Clear();
   gxListNode <CMcrontabs> *cptr = servercfg->node_crontabs.GetHead();
@@ -907,6 +909,8 @@ int console_command_is_valid(const gxString &command)
   if(sbuf == "printcfg") return 1;
   if(sbuf == "rstats") return 1;
   if(sbuf == "cm_stat") return 1;
+  if(sbuf == "standby") return 1;
+  if(sbuf == "unstandby") return 1;
   return 0;
 }
 
@@ -937,6 +941,13 @@ int print_console_help()
     cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=rstats -n\"CMNODE_nodename\"" << "\n";
     cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=rstats -n\"localhost\"" << "\n";
     cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=rstats -n\"$(uname -n)\"" << "\n";
+    cout << "\n";
+    cout << "Put this node in standby, its peers take over its resources:" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=standby" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=standby --force" << "\n";
+    cout << "\n";
+    cout << "Return this node to service, it takes back its resources:" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=unstandby" << "\n";
   }
   else {
     cout << "DRCM console commands" << "\n";
@@ -950,6 +961,9 @@ int print_console_help()
     cout << "quit        - Exit console" << "\n";
     cout << "rstats      - Print raw stats buffer for each cluster node" << "\n";
     cout << "rstats node - Print raw stats for single node by name or IP" << "\n";
+    cout << "standby     - Put this node in standby, peers take over its resources" << "\n";
+    cout << "standby force - Standby even if no peer can take over" << "\n";
+    cout << "unstandby   - Return this node to service" << "\n";
   }
 
   cout << "\n";
@@ -975,6 +989,11 @@ int run_console_command(const gxString &command)
 
   if(!arg.is_null() && sbuf == "ping") return ping_cluster_node(arg); 
   if(!arg.is_null() && sbuf == "rstats") return get_rstats_node(arg); 
+  if(sbuf == "standby") {
+    if(!arg.is_null() && arg != "force") return -1;
+    return cm_client_standby(servercfg->client_force || arg == "force");
+  }
+  if(sbuf == "unstandby" && arg.is_null()) return cm_client_unstandby();
   if(!console_command_is_valid(command)) return -1;
   if(command == "help") return print_console_help(); 
   if(command == "printcfg") return print_config(); 
@@ -1176,6 +1195,7 @@ int cm_stat()
   gxString resource, rbuf;
   int num_down = 0;
   int num_failedover = 0;
+  int num_standby = 0;
 
   gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
   while(ptr) {
@@ -1321,7 +1341,21 @@ int cm_stat()
   nptr = nodelist.GetHead();
   while(nptr) {
     display << "  " << nptr->data.node.nodename << "\t" << nptr->data.node.hostname << "\t";
-    nptr->data.is_alive ? display << "Up  " : display << "Down";
+    {
+      // A node in standby lists node:standby (or node:releasing while it
+      // stops its resources) in its stats
+      int node_state = 0;
+      lptr = nptr->data.stats.GetHead();
+      while(lptr) {
+	if(lptr->data.Find("node:standby,") == 0) node_state = 2;
+	if(lptr->data.Find("node:releasing,") == 0) node_state = 1;
+	lptr = lptr->next;
+      }
+      if(!nptr->data.is_alive) display << "Down";
+      else if(node_state == 2) { display << "Standby"; num_standby++; }
+      else if(node_state == 1) { display << "Releasing"; num_standby++; }
+      else display << "Up  ";
+    }
     if(!nptr->data.is_alive) num_down++;
     if(nptr->data.is_alive) num_alive++;
     display << "\t" << nptr->data.node.keep_alive_ip << "\n";
@@ -1535,6 +1569,12 @@ int cm_stat()
     else {
       display << "  Node status: Cluster has " << num_down <<  " nodes DOWN" << "\n";
     }
+  }
+  if(num_standby == 1) {
+    display << "  Standby: 1 node in STANDBY, its resources run on its peers" << "\n";
+  }
+  else if(num_standby > 1) {
+    display << "  Standby: " << num_standby << " nodes in STANDBY, their resources run on their peers" << "\n";
   }
   if(num_failedover == 0) {
     if(num_alive == 0) {

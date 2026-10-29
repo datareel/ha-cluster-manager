@@ -1,4 +1,4 @@
-DataReel Cluster Manager (DRCM) 1.42 Readme File
+DataReel Cluster Manager (DRCM) 1.43 Readme File
 Copyright (c) 2024 DataReel Software Development
 
 Online docs:
@@ -774,6 +774,19 @@ To test resource fail back:
 
 # systemctl start drcm_server
 # drcm_server --client --command=cm_stat
+
+To move a node's resources to its backup nodes while DRCM keeps
+running, for maintenance or application failover tests (1.43 and
+later), run on that node:
+
+# drcm_server --client --command=standby
+# drcm_server --client --command=cm_stat
+# drcm_server --client --command=unstandby
+
+standby refuses if no peer can take over (--force overrides). The node
+stays in standby across restarts until unstandby, and unstandby starts
+each resource only after the peer has stopped its copy. See "Standby"
+in docs/drcm.txt section 11.
 
 After testing make the DRCM service persistent:
 

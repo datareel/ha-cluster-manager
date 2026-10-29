@@ -1,10 +1,10 @@
 .\" DataReel Cluster Manager (DRCM) 1.X Manpage
 .\" Copyright (c) 2016-2026 DataReel Software Development
-.TH drcm_server 1 "25 Oct 2026" "1.42" "DataReel Cluster Manager"
+.TH drcm_server 1 "29 Oct 2026" "1.43" "DataReel Cluster Manager"
 .SH NAME
 drcm_server --client \- Start the DRCM client for cluster monitoring
 .SH SYNOPSIS
-drcm_server --client --command=[cm_stat help ping printcfg rstats]
+drcm_server --client --command=[cm_stat help ping printcfg rstats standby unstandby]
 .SH DESCRIPTION
 .Nm
 The DRCM client is used to check cluster health and for testing. See
@@ -46,6 +46,20 @@ drcm(8) for server start up options.
 	drcm_server --client --command=rstats -n"localhost"
 .P
 	drcm_server --client --command=rstats -n"$(uname -n)"
+.TP
+.B Put this node in standby, its peers take over its resources:
+.P
+	drcm_server --client --command=standby
+.P
+	drcm_server --client --command=standby --force
+.P
+The node stops its resources and stays in standby, also across
+restarts, until unstandby. Without --force it refuses when no peer
+with standby support backs up its resources.
+.TP
+.B Return this node to service, it takes its resources back:
+.P
+	drcm_server --client --command=unstandby
 
 .SH SEE ALSO
 drcm_server(8)

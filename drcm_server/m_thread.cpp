@@ -51,6 +51,7 @@ Multi-threaded framework Datareel cluster manager.
 #include "m_thread.h"
 #include "m_log.h"
 #include "m_tls.h"
+#include "m_standby.h"
 
 int get_fd_thread_error(int &error_number, gxString &sbuf)
 {
@@ -199,7 +200,11 @@ void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
 	  message << clear << "[" << seq_num << "]: Received " << (cluster_command == CM_CMD_PING ? "ping" : "keep alive") << " command from " << client_name;
 	  LogDebugMessage(message.c_str());
 	}
-	frame_len = cm_build_frame(txbuf, sizeof(txbuf), CM_CMD_ACK, 0, 0);
+	{
+	  // The ACK carries this node's state so peers know about standby
+	  const char *state = cm_node_state_payload();
+	  frame_len = cm_build_frame(txbuf, sizeof(txbuf), CM_CMD_ACK, state, (int)strlen(state));
+	}
 	if(frame_len > 0) {
 	  bmoved = RemoteRawWriteTo(txbuf, frame_len);
 	  get_fd_thread_error(error_number, sbuf);
@@ -231,6 +236,22 @@ void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
 	  LogDebugMessage(message.c_str());
 	}
 	break;
+
+      case CM_CMD_STANDBY:
+      case CM_CMD_UNSTANDBY: {
+	gxString reply;
+	int reply_cmd = cm_handle_standby_request(f, client_name, reply);
+	frame_len = cm_build_frame(txbuf, sizeof(txbuf), reply_cmd, reply.c_str(), (int)reply.length());
+	if(frame_len > 0) {
+	  bmoved = RemoteRawWriteTo(txbuf, frame_len);
+	  get_fd_thread_error(error_number, sbuf);
+	  if(bmoved != frame_len && servercfg->debug) {
+	    message << clear << "[" << seq_num << "]: ERROR - Error sending standby reply to " << client_name;
+	    LogDebugMessage(message.c_str());
+	  }
+	}
+	break;
+      }
 
       default:
 	if(servercfg->debug) {
@@ -391,9 +412,22 @@ void *CM_TCP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
 	  message << clear << "[" << r_port << "]: Received " << (f.command == CM_CMD_PING ? "ping" : "keep alive") << " command (TCP) from " << client_name;
 	  LogDebugMessage(message.c_str());
 	}
-	frame_len = cm_build_frame(txbuf, sizeof(txbuf), CM_CMD_ACK, 0, 0);
+	{
+	  // The ACK carries this node's state so peers know about standby
+	  const char *state = cm_node_state_payload();
+	  frame_len = cm_build_frame(txbuf, sizeof(txbuf), CM_CMD_ACK, state, (int)strlen(state));
+	}
 	if(frame_len > 0) conn.write_full(txbuf, frame_len);
 	break;
+
+      case CM_CMD_STANDBY:
+      case CM_CMD_UNSTANDBY: {
+	gxString reply;
+	int reply_cmd = cm_handle_standby_request(f, client_name, reply);
+	frame_len = cm_build_frame(txbuf, sizeof(txbuf), reply_cmd, reply.c_str(), (int)reply.length());
+	if(frame_len > 0) conn.write_full(txbuf, frame_len);
+	break;
+      }
 
       case CM_CMD_GETSTATS:
 	servercfg->stats.Get(stats_buf);
@@ -446,16 +480,33 @@ void CM_TCP_ServerThread::ThreadCleanupHandler(gxThread_t *thread)
 }
 
 // Sleep between resource checks, one second at a time, and return early
-// when this node becomes isolated or stops being isolated, so resources
-// are stopped or restarted without waiting a full check interval.
+// when this node becomes isolated or stops being isolated, or enters or
+// leaves standby, so resources are stopped or restarted without waiting
+// a full check interval. When a peer's take over flag changes, return
+// after a delay set by this node's place in the config (5 seconds per
+// node), so backup nodes do not all start the same resource at once.
 static void cm_resource_check_sleep(int secs)
 {
   int isolated = servercfg->node_isolated;
+  int standby = servercfg->node_standby;
+  int wake = servercfg->resource_wake;
+  int wake_delay = -1;
   while(secs-- > 0) {
     if(!servercfg->accept_clients || servercfg->restart_server || servercfg->kill_server) return;
     if(servercfg->node_isolated != isolated) return;
+    if(servercfg->node_standby != standby) return;
+    if(wake_delay < 0 && servercfg->resource_wake != wake) wake_delay = servercfg->my_node_index * 5;
+    if(wake_delay == 0) return;
+    if(wake_delay > 0) wake_delay--;
     sSleep(1);
   }
+}
+
+// 1 if a peer reported that it is in standby or releasing its
+// resources for standby. Its resources stay taken over.
+static int peer_is_standby(CMnode *n)
+{
+  return n->peer_state == CM_PEER_STATE_STANDBY || n->peer_state == CM_PEER_STATE_RELEASING;
 }
 
 void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
@@ -557,7 +608,21 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
 	  message << clear << "Node " << ptr->data->nodename << " is reachable again, this node is no longer isolated, resuming its resources";
 	  LogMessage(message.c_str());
 	}
-	if(ptr->data->CLUSTER_TAKE_OVER_FLAG() == 1) {
+	if(ptr->data->peer_state == CM_PEER_STATE_STANDBY) {
+	  // The peer stopped its resources for standby and is waiting for
+	  // them to be taken over. It answers, so there is no need to wait
+	  // for dead_node_count or to run the takeover checks.
+	  if(ptr->data->CLUSTER_TAKE_OVER_FLAG() == 0) {
+	    ptr->data->CLUSTER_TAKE_OVER_FLAG(1, 0);
+	    message << clear << "Node " << ptr->data->nodename << " is in standby, signaling cluster resource failover to active nodes";
+	    LogMessage(message.c_str());
+	  }
+	}
+	else if(ptr->data->peer_state == CM_PEER_STATE_RELEASING) {
+	  // Still stopping its resources for standby: do not take them over
+	  // yet, and do not fail back any already taken over
+	}
+	else if(ptr->data->CLUSTER_TAKE_OVER_FLAG() == 1) {
 	  prev_failed_nodes.Add(ptr->data);
 	}
       }
@@ -577,7 +642,11 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
 	send_keep_alive(ptr->data, keep_alive_error_level, 1, 0);
 	sSleep(1);
       }
-      if(keep_alive_error_level == 0) {
+      if(keep_alive_error_level == 0 && peer_is_standby(ptr->data)) {
+	message << clear << "Node " << ptr->data->nodename << " is in standby, will not fail back";
+	LogMessage(message.c_str());
+      }
+      else if(keep_alive_error_level == 0) {
 	ptr->data->CLUSTER_TAKE_OVER_FLAG(0, 1);
       }
       else {
@@ -591,6 +660,9 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
     if(num_remote_active_nodes > 0 && error_count == num_remote_active_nodes) {
       if(message_count == 0) {
 	LogMessage("ERROR - All active CM nodes failed pre connection test");
+	if(servercfg->node_standby) {
+	  LogMessage("WARNING - This node is in standby and no peer answers, its resources may not be running anywhere");
+	}
       }
     }
 
@@ -681,7 +753,14 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
 	  connected_since = 0;
 	  LogMessage("A peer is reachable again, this node is no longer isolated, resuming its resources");
 	}
-	if(ptr->data->CLUSTER_TAKE_OVER_FLAG() == 1) {
+	if(peer_is_standby(ptr->data)) {
+	  if(ptr->data->peer_state == CM_PEER_STATE_STANDBY && ptr->data->CLUSTER_TAKE_OVER_FLAG() == 0) {
+	    ptr->data->CLUSTER_TAKE_OVER_FLAG(1, 0);
+	    message << clear << "Node " << ptr->data->nodename << " is in standby, signaling cluster resource failover to active nodes";
+	    LogMessage(message.c_str());
+	  }
+	}
+	else if(ptr->data->CLUSTER_TAKE_OVER_FLAG() == 1) {
 	  ptr->data->CLUSTER_TAKE_OVER_FLAG(0, 1);
 	  message << clear << "Node " << ptr->data->nodename << " signaling cluster failback to take back resources";
 	  LogMessage(message.c_str());
@@ -747,8 +826,11 @@ void *CM_CrontabsThread::ThreadEntryRoutine(gxThread_t *thread)
   gxString command;
 
   set_this_node(); // Load this node so the check interval below is from the config
-  sSleep(node.crontabs_check); // Time for process start up
-  int fenced = 0; // 1 = resources stopped because this node is isolated
+  // Time for process start up. A node starting in standby only stops
+  // things, so it releases at once and its peers can take over.
+  if(!servercfg->node_standby) cm_resource_check_sleep(node.crontabs_check);
+  int fenced = 0; // 1 = resources stopped because this node is isolated or in standby
+  CMFailbackWait failback;
   command << clear << "date > " << servercfg->log_dir << "/crontab_resource.log";
   RunSystemCommand(command);
 
@@ -756,22 +838,36 @@ void *CM_CrontabsThread::ThreadEntryRoutine(gxThread_t *thread)
     if(servercfg->restart_server) break;
     if(servercfg->kill_server) break;
   
-    if(servercfg->node_isolated) {
-      // Isolated: stop everything this node runs, once, and start
-      // nothing until the node is connected again.
+    if(servercfg->node_isolated || servercfg->node_standby) {
+      // Isolated or in standby: stop everything this node runs, once,
+      // and start nothing until the node is connected again or leaves
+      // standby.
       if(!fenced) {
-	LogMessage("This node is isolated, stopping all crontabs");
+	if(servercfg->node_isolated) {
+	  LogMessage("This node is isolated, stopping all crontabs");
+	}
+	else {
+	  LogMessage("This node is in standby, stopping all crontabs");
+	}
 	if(remove_all_crontabs() == 0) fenced = 1;
       }
+      cm_standby_thread_released(CM_RES_CRONTABS, fenced);
     }
     else {
       fenced = 0;
+      cm_standby_thread_released(CM_RES_CRONTABS, 0);
+      if(failback.hold(CM_RES_CRONTABS, node.crontabs)) {
+	// Unstandby: a peer still runs one of this node's crontabs
+	sSleep(2);
+	continue;
+      }
       if(install_crontabs() != 0) {
 	LogMessage("ERROR - Crontab install reported errors");
       }
     }
 
-    cm_resource_check_sleep(node.crontabs_check);
+    // In standby, retry soon if the resources could not all be stopped
+    cm_resource_check_sleep((servercfg->node_standby && !fenced) ? 5 : node.crontabs_check);
   }  
 
   return (void *)0;
@@ -1003,6 +1099,16 @@ int CM_CrontabsThread::remove_all_crontabs()
   if(has_errors == 0) {
     installed_crontabs.ClearList();
     installed_backup_crontabs.ClearList();
+    // Nothing runs here now, so take it out of the stats too
+    gxString stat_message;
+    gxListNode <CMcrontabs> *sptr_stat = servercfg->node_crontabs.GetHead();
+    while(sptr_stat) {
+      stat_message << clear << "cron:" << sptr_stat->data.nickname;
+      servercfg->stats.Remove(stat_message);
+      stat_message << clear << "backup_cron:" << sptr_stat->data.nickname;
+      servercfg->stats.Remove(stat_message);
+      sptr_stat = sptr_stat->next;
+    }
   }
   return has_errors;
 }
@@ -1029,8 +1135,11 @@ void *CM_IPaddrsThread::ThreadEntryRoutine(gxThread_t *thread)
   gxString command;
 
   set_this_node(); // Load this node so the check interval below is from the config
-  sSleep(node.ipaddrs_check); // Time for process start up
-  int fenced = 0; // 1 = resources stopped because this node is isolated
+  // Time for process start up. A node starting in standby only stops
+  // things, so it releases at once and its peers can take over.
+  if(!servercfg->node_standby) cm_resource_check_sleep(node.ipaddrs_check);
+  int fenced = 0; // 1 = resources stopped because this node is isolated or in standby
+  CMFailbackWait failback;
   command << clear << "date > " << servercfg->log_dir << "/ipv4addr_resource.log";
   RunSystemCommand(command);
 
@@ -1038,22 +1147,42 @@ void *CM_IPaddrsThread::ThreadEntryRoutine(gxThread_t *thread)
     if(servercfg->restart_server) break;
     if(servercfg->kill_server) break;
   
-    if(servercfg->node_isolated) {
-      // Isolated: stop everything this node runs, once, and start
-      // nothing until the node is connected again.
+    if(servercfg->node_isolated || servercfg->node_standby) {
+      // Isolated or in standby: stop everything this node runs, once,
+      // and start nothing until the node is connected again or leaves
+      // standby.
+      if(!fenced && servercfg->node_standby && !cm_standby_may_release(CM_RES_IPADDRS)) {
+	// Standby: release the floating IPs after the crontabs, services
+	// and applications are stopped
+	sSleep(1);
+	continue;
+      }
       if(!fenced) {
-	LogMessage("This node is isolated, stopping all floating IP addresses");
+	if(servercfg->node_isolated) {
+	  LogMessage("This node is isolated, stopping all floating IP addresses");
+	}
+	else {
+	  LogMessage("This node is in standby, stopping all floating IP addresses");
+	}
 	if(remove_all_ipaddrs() == 0) fenced = 1;
       }
+      cm_standby_thread_released(CM_RES_IPADDRS, fenced);
     }
     else {
       fenced = 0;
+      cm_standby_thread_released(CM_RES_IPADDRS, 0);
+      if(failback.hold(CM_RES_IPADDRS, node.floating_ip_addrs)) {
+	// Unstandby: a peer still runs one of this node's floating IP addresses
+	sSleep(2);
+	continue;
+      }
       if(install_floating_ipaddrs() != 0) {
 	LogMessage("ERROR - Floating IP address install reported errors");
       }
     }
 
-    cm_resource_check_sleep(node.ipaddrs_check);
+    // In standby, retry soon if the resources could not all be stopped
+    cm_resource_check_sleep((servercfg->node_standby && !fenced) ? 5 : node.ipaddrs_check);
   }  
 
   return (void *)0;
@@ -1106,6 +1235,16 @@ int CM_IPaddrsThread::remove_all_ipaddrs()
   if(has_errors == 0) {
     installed_floating_ipaddrs.ClearList();
     installed_backup_floating_ipaddrs.ClearList();
+    // Nothing runs here now, so take it out of the stats too
+    gxString stat_message;
+    gxListNode <CMipaddrs> *sptr_stat = servercfg->node_ipaddrs.GetHead();
+    while(sptr_stat) {
+      stat_message << clear << "ip:" << sptr_stat->data.nickname;
+      servercfg->stats.Remove(stat_message);
+      stat_message << clear << "backup_ip:" << sptr_stat->data.nickname;
+      servercfg->stats.Remove(stat_message);
+      sptr_stat = sptr_stat->next;
+    }
   }
   return has_errors;
 }
@@ -1328,8 +1467,11 @@ void *CM_servicesThread::ThreadEntryRoutine(gxThread_t *thread)
   gxString command;
 
   set_this_node(); // Load this node so the check interval below is from the config
-  sSleep(node.services_check); // Time for process start up
-  int fenced = 0; // 1 = resources stopped because this node is isolated
+  // Time for process start up. A node starting in standby only stops
+  // things, so it releases at once and its peers can take over.
+  if(!servercfg->node_standby) cm_resource_check_sleep(node.services_check);
+  int fenced = 0; // 1 = resources stopped because this node is isolated or in standby
+  CMFailbackWait failback;
 
   command << clear << "date > " << servercfg->log_dir << "/service_resource.log";
   RunSystemCommand(command);
@@ -1338,22 +1480,36 @@ void *CM_servicesThread::ThreadEntryRoutine(gxThread_t *thread)
     if(servercfg->restart_server) break;
     if(servercfg->kill_server) break;
   
-    if(servercfg->node_isolated) {
-      // Isolated: stop everything this node runs, once, and start
-      // nothing until the node is connected again.
+    if(servercfg->node_isolated || servercfg->node_standby) {
+      // Isolated or in standby: stop everything this node runs, once,
+      // and start nothing until the node is connected again or leaves
+      // standby.
       if(!fenced) {
-	LogMessage("This node is isolated, stopping all services");
+	if(servercfg->node_isolated) {
+	  LogMessage("This node is isolated, stopping all services");
+	}
+	else {
+	  LogMessage("This node is in standby, stopping all services");
+	}
 	if(stop_all_services() == 0) fenced = 1;
       }
+      cm_standby_thread_released(CM_RES_SERVICES, fenced);
     }
     else {
       fenced = 0;
+      cm_standby_thread_released(CM_RES_SERVICES, 0);
+      if(failback.hold(CM_RES_SERVICES, node.services)) {
+	// Unstandby: a peer still runs one of this node's services
+	sSleep(2);
+	continue;
+      }
       if(install_services() != 0) {
 	LogMessage("ERROR - Service start/watch reported errors");
       }
     }
 
-    cm_resource_check_sleep(node.services_check);
+    // In standby, retry soon if the resources could not all be stopped
+    cm_resource_check_sleep((servercfg->node_standby && !fenced) ? 5 : node.services_check);
   }  
 
   return (void *)0;
@@ -1456,6 +1612,16 @@ int CM_servicesThread::stop_all_services()
   if(has_errors == 0) {
     installed_services.ClearList();
     installed_backup_services.ClearList();
+    // Nothing runs here now, so take it out of the stats too
+    gxString stat_message;
+    gxListNode <CMservices> *sptr_stat = servercfg->node_services.GetHead();
+    while(sptr_stat) {
+      stat_message << clear << "service:" << sptr_stat->data.nickname;
+      servercfg->stats.Remove(stat_message);
+      stat_message << clear << "backup_service:" << sptr_stat->data.nickname;
+      servercfg->stats.Remove(stat_message);
+      sptr_stat = sptr_stat->next;
+    }
   }
   return has_errors;
 }
@@ -1695,8 +1861,11 @@ void *CM_applicationsThread::ThreadEntryRoutine(gxThread_t *thread)
   gxString command;
 
   set_this_node(); // Load this node so the check interval below is from the config
-  sSleep(node.applications_check); // Time for process start up
-  int fenced = 0; // 1 = resources stopped because this node is isolated
+  // Time for process start up. A node starting in standby only stops
+  // things, so it releases at once and its peers can take over.
+  if(!servercfg->node_standby) cm_resource_check_sleep(node.applications_check);
+  int fenced = 0; // 1 = resources stopped because this node is isolated or in standby
+  CMFailbackWait failback;
 
   command << clear << "date > " << servercfg->log_dir << "/application_resource.log";
   RunSystemCommand(command);
@@ -1705,22 +1874,36 @@ void *CM_applicationsThread::ThreadEntryRoutine(gxThread_t *thread)
     if(servercfg->restart_server) break;
     if(servercfg->kill_server) break;
   
-    if(servercfg->node_isolated) {
-      // Isolated: stop everything this node runs, once, and start
-      // nothing until the node is connected again.
+    if(servercfg->node_isolated || servercfg->node_standby) {
+      // Isolated or in standby: stop everything this node runs, once,
+      // and start nothing until the node is connected again or leaves
+      // standby.
       if(!fenced) {
-	LogMessage("This node is isolated, stopping all applications");
+	if(servercfg->node_isolated) {
+	  LogMessage("This node is isolated, stopping all applications");
+	}
+	else {
+	  LogMessage("This node is in standby, stopping all applications");
+	}
 	if(stop_all_applications() == 0) fenced = 1;
       }
+      cm_standby_thread_released(CM_RES_APPLICATIONS, fenced);
     }
     else {
       fenced = 0;
+      cm_standby_thread_released(CM_RES_APPLICATIONS, 0);
+      if(failback.hold(CM_RES_APPLICATIONS, node.applications)) {
+	// Unstandby: a peer still runs one of this node's applications
+	sSleep(2);
+	continue;
+      }
       if(install_applications() != 0) {
 	LogMessage("ERROR - Application start/watch reported errors");
       }
     }
 
-    cm_resource_check_sleep(node.applications_check);
+    // In standby, retry soon if the resources could not all be stopped
+    cm_resource_check_sleep((servercfg->node_standby && !fenced) ? 5 : node.applications_check);
   }  
 
   return (void *)0;
@@ -1775,6 +1958,16 @@ int CM_applicationsThread::stop_all_applications()
   if(has_errors == 0) {
     installed_applications.ClearList();
     installed_backup_applications.ClearList();
+    // Nothing runs here now, so take it out of the stats too
+    gxString stat_message;
+    gxListNode <CMapplications> *sptr_stat = servercfg->node_applications.GetHead();
+    while(sptr_stat) {
+      stat_message << clear << "application:" << sptr_stat->data.nickname;
+      servercfg->stats.Remove(stat_message);
+      stat_message << clear << "backup_application:" << sptr_stat->data.nickname;
+      servercfg->stats.Remove(stat_message);
+      sptr_stat = sptr_stat->next;
+    }
   }
   return has_errors;
 }
@@ -2096,7 +2289,11 @@ void *CM_filesystemsThread::ThreadEntryRoutine(gxThread_t *thread)
   gxString command;
 
   set_this_node(); // Load this node so the check interval below is from the config
-  sSleep(node.filesystems_check); // Time for process start up
+  // Time for process start up. A node starting in standby only stops
+  // things, so it releases at once and its peers can take over.
+  if(!servercfg->node_standby) cm_resource_check_sleep(node.filesystems_check);
+  int fenced = 0; // 1 = file systems released because this node is in standby
+  CMFailbackWait failback;
   command << clear << "date > " << servercfg->log_dir << "/filesystem_resource.log";
   RunSystemCommand(command);
 
@@ -2104,11 +2301,35 @@ void *CM_filesystemsThread::ThreadEntryRoutine(gxThread_t *thread)
     if(servercfg->restart_server) break;
     if(servercfg->kill_server) break;
   
-    if(mount_filesystems() != 0) {
-      LogMessage("ERROR - File systems mount/unmount reported errors");
+    if(servercfg->node_standby) {
+      // Standby: unmount after the crontabs, services and applications
+      // are stopped. As when DRCM stops, keep_filesystems keeps this
+      // node's own file systems mounted; backup mounts always go.
+      if(!fenced && !cm_standby_may_release(CM_RES_FILESYSTEMS)) {
+	sSleep(1);
+	continue;
+      }
+      if(!fenced) {
+	LogMessage("This node is in standby, unmounting file systems");
+	int rv = node.keep_filesystems ? unmount_backup_filesystems() : unmount_all_filesystems();
+	if(rv == 0) fenced = 1;
+      }
+      cm_standby_thread_released(CM_RES_FILESYSTEMS, fenced);
+    }
+    else {
+      fenced = 0;
+      cm_standby_thread_released(CM_RES_FILESYSTEMS, 0);
+      if(failback.hold(CM_RES_FILESYSTEMS, node.filesystems)) {
+	// Unstandby: a peer still has one of this node's file systems mounted
+	sSleep(2);
+	continue;
+      }
+      if(mount_filesystems() != 0) {
+	LogMessage("ERROR - File systems mount/unmount reported errors");
+      }
     }
 
-    sSleep(node.filesystems_check);
+    cm_resource_check_sleep((servercfg->node_standby && !fenced) ? 5 : node.filesystems_check);
   }  
 
   return (void *)0;
@@ -2360,6 +2581,16 @@ int CM_filesystemsThread::unmount_all_filesystems()
   if(has_errors == 0) {
     installed_filesystems.ClearList();
     installed_backup_filesystems.ClearList();
+    // Nothing runs here now, so take it out of the stats too
+    gxString stat_message;
+    gxListNode <CMfilesystems> *sptr_stat = servercfg->node_filesystems.GetHead();
+    while(sptr_stat) {
+      stat_message << clear << "filesystem:" << sptr_stat->data.nickname;
+      servercfg->stats.Remove(stat_message);
+      stat_message << clear << "backup_filesystem:" << sptr_stat->data.nickname;
+      servercfg->stats.Remove(stat_message);
+      sptr_stat = sptr_stat->next;
+    }
   }
   return has_errors;
 }
