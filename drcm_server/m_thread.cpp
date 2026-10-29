@@ -842,6 +842,7 @@ void *CM_CrontabsThread::ThreadEntryRoutine(gxThread_t *thread)
       // Isolated or in standby: stop everything this node runs, once,
       // and start nothing until the node is connected again or leaves
       // standby.
+      if(servercfg->node_standby) failback.standby_seen();
       if(!fenced) {
 	if(servercfg->node_isolated) {
 	  LogMessage("This node is isolated, stopping all crontabs");
@@ -1151,6 +1152,7 @@ void *CM_IPaddrsThread::ThreadEntryRoutine(gxThread_t *thread)
       // Isolated or in standby: stop everything this node runs, once,
       // and start nothing until the node is connected again or leaves
       // standby.
+      if(servercfg->node_standby) failback.standby_seen();
       if(!fenced && servercfg->node_standby && !cm_standby_may_release(CM_RES_IPADDRS)) {
 	// Standby: release the floating IPs after the crontabs, services
 	// and applications are stopped
@@ -1484,6 +1486,7 @@ void *CM_servicesThread::ThreadEntryRoutine(gxThread_t *thread)
       // Isolated or in standby: stop everything this node runs, once,
       // and start nothing until the node is connected again or leaves
       // standby.
+      if(servercfg->node_standby) failback.standby_seen();
       if(!fenced) {
 	if(servercfg->node_isolated) {
 	  LogMessage("This node is isolated, stopping all services");
@@ -1878,6 +1881,7 @@ void *CM_applicationsThread::ThreadEntryRoutine(gxThread_t *thread)
       // Isolated or in standby: stop everything this node runs, once,
       // and start nothing until the node is connected again or leaves
       // standby.
+      if(servercfg->node_standby) failback.standby_seen();
       if(!fenced) {
 	if(servercfg->node_isolated) {
 	  LogMessage("This node is isolated, stopping all applications");
@@ -2305,6 +2309,7 @@ void *CM_filesystemsThread::ThreadEntryRoutine(gxThread_t *thread)
       // Standby: unmount after the crontabs, services and applications
       // are stopped. As when DRCM stops, keep_filesystems keeps this
       // node's own file systems mounted; backup mounts always go.
+      failback.standby_seen();
       if(!fenced && !cm_standby_may_release(CM_RES_FILESYSTEMS)) {
 	sSleep(1);
 	continue;
