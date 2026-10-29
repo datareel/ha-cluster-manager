@@ -4,11 +4,12 @@
 # UDP keep alives, fake resources (res.sh) that log every start and
 # stop to shared/events.log.
 #
-# Usage: ./setup.sh start NEW_BINARY [OLD_BINARY]
+# Usage: ./setup.sh start NEW_BINARY [OLD_BINARY [PREV_BINARY]]
 #        ./setup.sh stop
 # NEW_BINARY is the drcm_server under test (an AddressSanitizer build
 # works too). OLD_BINARY, if given, is a 1.42 drcm_server for the
-# mixed version test.
+# mixed version test. PREV_BINARY, if given, is a 1.44 drcm_server
+# for the test that an older server refuses a timed standby.
 set -e
 T=$(dirname $(readlink -f $0)); cd $T
 NODES="n1 n2 n3"
@@ -18,15 +19,17 @@ if [ "$1" == "stop" ]; then
     exit 0
 fi
 if [ "$1" != "start" ] || [ ! -x "$2" ]; then
-    echo "Usage: $0 start NEW_BINARY [OLD_BINARY] | stop"; exit 1
+    echo "Usage: $0 start NEW_BINARY [OLD_BINARY [PREV_BINARY]] | stop"; exit 1
 fi
 NEW=$(readlink -f $2)
 OLD=""; if [ -n "$3" ]; then OLD=$(readlink -f $3); fi
+PREV=""; if [ -n "$4" ]; then PREV=$(readlink -f $4); fi
 
 podman build -q -t drcmsbtest . > /dev/null
 rm -rf run shared; mkdir -p run/etc/.auth shared/state
 cp $NEW run/drcm_server.new
 if [ -n "$OLD" ]; then cp $OLD run/drcm_server.old; fi
+if [ -n "$PREV" ]; then cp $PREV run/drcm_server.prev; fi
 dd if=/dev/urandom bs=1024 count=2 of=run/etc/.auth/authkey status=none
 sha1sum run/etc/.auth/authkey | cut -b1-40 > run/etc/.auth/authkey.sha1
 chmod 700 run/etc/.auth; chmod 600 run/etc/.auth/*

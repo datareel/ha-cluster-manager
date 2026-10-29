@@ -314,8 +314,10 @@ struct CMconfig {
   volatile int node_standby;      // 1 = standby requested
   volatile int standby_released[CM_NUM_RES_THREADS]; // 1 = thread stopped its resources
   volatile int resource_wake;     // bumped when a take over flag changes
+  volatile time_t standby_until;  // timed standby (--time) end, 0 = until unstandby
   int my_node_index;              // position of this node in the config, staggers takeovers
   int client_force;               // --force for the standby client command
+  long client_standby_secs;       // --time for the standby client command, 0 = none
 
   gxString my_hostname;
   gxString run_dir, log_dir, spool_dir;
