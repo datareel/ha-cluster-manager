@@ -1,4 +1,4 @@
-DataReel Cluster Manager (DRCM) 1.43 Readme File
+DataReel Cluster Manager (DRCM) 1.44 Readme File
 Copyright (c) 2024 DataReel Software Development
 
 Online docs:

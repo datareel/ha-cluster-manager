@@ -1,6 +1,6 @@
 BuildArch: x86_64
 Name: drcm_server
-Version: 1.43        
+Version: 1.44        
 Release: 1.el10.x86_64
 Summary: Datareel Cluster Manager RPM        
 Group: System Environment/Daemons
@@ -122,6 +122,10 @@ if [ $1 -ge 1 ] ; then
 fi
 
 %changelog
+* Thu Oct 29 2026 Datareel <datareel.com>
+- Release 1.44: unstandby without a restart now waits for the peers to
+  stop their backup copies
+
 * Thu Oct 29 2026 Datareel <datareel.com>
 - Release 1.43: node standby (drcm_server --client --command=standby
   and unstandby) for maintenance and application failover testing
