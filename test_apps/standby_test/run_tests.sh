@@ -93,6 +93,16 @@ check "standby file removed" test ! -f run/n1/lib/standby
 check "no overlap during fail back" ./analyze.py $EV unstandby1
 ./analyze.py $EV unstandby1 | grep gap
 
+echo "== 4b. Standby then unstandby with no restart in between"
+mark quick1
+check "standby succeeds" client n1 --command=standby
+check "n2 runs all of n1's resources" all_on n2
+check "unstandby succeeds" client n1 --command=unstandby
+check "n1 runs its resources again" all_on n1
+check "n2 stopped its backup copies" wait_for 10 none_on n2
+check "no overlap in standby then unstandby" ./analyze.py $EV quick1
+./analyze.py $EV quick1 | grep gap
+
 echo "== 5. Request from another host is rejected"
 # A client on n2 whose config gives n2 the keep alive address of n1, so
 # its request for n2 goes to n1's server from n2's address

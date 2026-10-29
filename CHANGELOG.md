@@ -5,6 +5,18 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+## [1.44] - 2026-10-29
+
+### Fixed
+- `unstandby` on a node that had not restarted since `standby` started
+  its resources at once, while a peer still ran its backup copies, so
+  a resource could run on two nodes until the peer's normal fail back
+  (about 20 seconds on the test cluster). Each resource thread now
+  notes standby on every pass, so `unstandby` always waits for the
+  peers. 1.43 is affected; upgrade standby nodes to 1.44.
+- `test_apps/standby_test` test 4b covers standby then unstandby with
+  no restart in between.
+
 ## [1.43] - 2026-10-29
 
 1.43 and 1.42 nodes work together in one cluster (same

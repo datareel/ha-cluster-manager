@@ -30,7 +30,8 @@ Tests:
      file systems stop after the apps, rstats and cm_stat show it.
   2. DRCM restart on n1 in standby: stays in standby, nothing moves.
   3. Container kill and restart (reboot) of n1 in standby: same.
-  4. unstandby: everything returns to n1 with no overlap.
+  4. unstandby: everything returns to n1 with no overlap. 4b repeats
+     standby and unstandby with no restart in between.
   5. A standby request sent from n2 for n1 is rejected.
   6. With n2 and n3 stopped, standby is refused; --force stops n1's
      own resources and the app2 and app3 backups it took over.

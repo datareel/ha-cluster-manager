@@ -101,6 +101,9 @@ int cm_reply_peer_state(const CMFrame &reply);
 struct CMFailbackWait {
   CMFailbackWait();
   int hold(int res_thread, const gxList<gxString> &own_resources);
+  // Call on every pass while the thread is fenced for standby, so an
+  // unstandby without a restart still waits for the peers
+  void standby_seen() { prev_standby = 1; }
 
   int prev_standby;
   int waiting;
