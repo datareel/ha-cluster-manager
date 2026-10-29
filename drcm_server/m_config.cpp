@@ -59,6 +59,7 @@ CMnode::CMnode()
   keep_services = 0;
   keep_filesystems = 1;
   keep_applications = 0;
+  peer_state = CM_PEER_STATE_UNKNOWN;
 }
 
 int CMnode::CLUSTER_TAKE_OVER_FLAG(int set, int unset) 
@@ -69,9 +70,13 @@ int CMnode::CLUSTER_TAKE_OVER_FLAG(int set, int unset)
   cluster_take_over_flag_is_locked = 1; 
   
   // ********** Enter Critical Section ******************* //
+  int prev = cluster_take_over_flag;
   if(set) cluster_take_over_flag = 1;
   if(unset) cluster_take_over_flag = 0;
   int buf = cluster_take_over_flag;
+  // Wake the resource threads so a take over or fail back does not
+  // wait for a full check interval
+  if(buf != prev) servercfg->resource_wake++;
   // ********** Leave Critical Section ******************* //
   
   cluster_take_over_flag_is_locked = 0; 
@@ -110,6 +115,7 @@ void CMnode::Copy(const CMnode &n) {
   copy_list(n.peer_endpoints, peer_endpoints);
   tls_peer_fingerprint = n.tls_peer_fingerprint;
   floating_ip_provider = n.floating_ip_provider;
+  peer_state = n.peer_state;
 }
 
 void CMnode::copy_list(const gxList<gxString> &source, gxList<gxString> &dest) 
@@ -178,6 +184,12 @@ CMconfig::CMconfig()
   isolation_check_count = 15;
   isolation_recover_secs = 300;
   node_isolated = 0;
+  standby_file = "/var/lib/drcm/standby";
+  node_standby = 0;
+  for(int i = 0; i < CM_NUM_RES_THREADS; i++) standby_released[i] = 0;
+  resource_wake = 0;
+  my_node_index = 0;
+  client_force = 0;
 
   accept_clients = 1;
   echo_loop = 1;
@@ -406,6 +418,10 @@ int ProcessDashDashArg(gxString &arg)
   }
   if(arg == "client") {
     servercfg->is_client = 1;
+    has_arg = 1;
+  }
+  if(arg == "force") {
+    servercfg->client_force = 1;
     has_arg = 1;
   }
 
@@ -669,6 +685,8 @@ const char *cfg_server_keys[] = {
   // Split brain protection
   "isolation_check", "isolation_check_count", "isolation_recover_secs",
   "takeover_check",
+  // Standby
+  "standby_file",
   0
 };
 
@@ -1131,6 +1149,13 @@ int LoadOrBuildConfigFile()
 	}
 	if(cfgkey == "takeover_check") {
 	  servercfg->takeover_check = CfgGetEqualToString(ptr->data);
+	}
+	if(cfgkey == "standby_file") {
+	  servercfg->standby_file = CfgGetEqualToString(ptr->data);
+	  if(servercfg->standby_file.is_null() || servercfg->standby_file[0] != '/') {
+	    NT_print("Config file has bad standby_file value, must be a full path");
+	    error_level = 1;
+	  }
 	}
 	if(cfgkey == "quorum_required") {
 	  servercfg->quorum_required = CfgGetTrueFalseValue(ptr->data);

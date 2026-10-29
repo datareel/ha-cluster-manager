@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DRCM Administrator Guide</title>
-<meta name="description" content="DataReel Cluster Manager (DRCM) 1.42 administrator guide: install, configuration, transports, security, quorum, failover and troubleshooting.">
+<meta name="description" content="DataReel Cluster Manager (DRCM) 1.43 administrator guide: install, configuration, transports, security, quorum, failover and troubleshooting.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -269,9 +269,9 @@ footer { color: var(--text-muted); font-size: 14px; padding-top: 8px; }
 <main>
 <header class="hero">
   <h1>DataReel Cluster Manager</h1>
-  <p>Administrator guide for DRCM 1.42, a high availability cluster manager for Linux servers.</p>
+  <p>Administrator guide for DRCM 1.43, a high availability cluster manager for Linux servers.</p>
   <div class="meta">
-    <span class="pill">Version 1.42</span>
+    <span class="pill">Version 1.43</span>
     <span class="pill">RHEL 10 &middot; 9 &middot; 8</span>
     <span class="pill">UDP or TCP + TLS</span>
     <span class="pill">Plain text copy: docs/drcm.txt</span>
@@ -340,7 +340,7 @@ footer { color: var(--text-muted); font-size: 14px; padding-top: 8px; }
 
   <h3>RPM install</h3>
   <p>Prebuilt RPMs for RHEL 8, 9 and 10 are on the downloads page, <a href="https://datareel.com/downloads/drcm/">datareel.com/downloads/drcm</a>.</p>
-<pre><code>$ sudo dnf -y install ./drcm_server-1.42-1.el9.x86_64.x86_64.rpm
+<pre><code>$ sudo dnf -y install ./drcm_server-1.43-1.el9.x86_64.x86_64.rpm
 $ rpm -ql drcm_server          # files
 $ rpm -qc drcm_server          # configs
 $ sudo dnf -y remove drcm_server</code></pre>
@@ -348,12 +348,12 @@ $ sudo dnf -y remove drcm_server</code></pre>
   <h3>Build your own RPM</h3>
   <p>The build needs <code>gcc-c++</code>, <code>make</code>, <code>rpm-build</code> and <code>openssl-devel</code>.</p>
 <pre><code>$ cd $HOME; mkdir -pv git; cd $HOME/git
-$ wget https://datareel.com/downloads/drcm/ha-cluster-manager-1.42.tar.gz
-$ tar xzf ha-cluster-manager-1.42.tar.gz
-$ mv ha-cluster-manager-1.42 ha-cluster-manager
+$ wget https://datareel.com/downloads/drcm/ha-cluster-manager-1.43.tar.gz
+$ tar xzf ha-cluster-manager-1.43.tar.gz
+$ mv ha-cluster-manager-1.43 ha-cluster-manager
 $ cd $HOME/git/ha-cluster-manager/rpm_builder
 $ ./make_rhel10_rpm.sh         # or make_rhel9_rpm.sh, make_rhel8_rpm.sh
-$ sudo dnf -y install $HOME/rpmbuild/RPMS/x86_64/drcm_server-1.42-1.el10.x86_64.x86_64.rpm</code></pre>
+$ sudo dnf -y install $HOME/rpmbuild/RPMS/x86_64/drcm_server-1.43-1.el10.x86_64.x86_64.rpm</code></pre>
 
   <h3>Build from source</h3>
 <pre><code>$ sudo dnf -y install gcc-c++ make openssl-devel
@@ -419,6 +419,7 @@ Restart=on-failure</code></pre>
       <tr><td><code>tcpport</code></td><td>53897</td><td>TCP port for the TCP + TLS transport. It can equal <code>udpport</code>.</td></tr>
       <tr><td><code>bind_to_keep_alive_ip</code></td><td>1</td><td>Listen only on this node's keep alive IP. Set 0 to listen on all interfaces.</td></tr>
       <tr><td><code>dead_node_count</code></td><td></td><td>Failed keep alives in a row before a node is declared dead. Each node has its own count.</td></tr>
+      <tr><td><code>standby_file</code></td><td>/var/lib/drcm/standby</td><td>Present while this node is in standby (see <a href="#standby">Standby</a>). Full path. The directory is created if missing.</td></tr>
       <tr><td><code>run_dir</code>, <code>log_dir</code>, <code>spool_dir</code></td><td>/var/run/drcm, /var/log/drcm, /var/spool/drcm</td><td>Process directories.</td></tr>
       <tr><td><code>cluster_user</code>, <code>cluster_group</code></td><td>root</td><td>Account the server and resource scripts run as.</td></tr>
       <tr><td><code>sudo_command</code></td><td>sudo su root -c</td><td>Prefix for privileged commands. Arguments are shell quoted.</td></tr>
@@ -666,6 +667,8 @@ witness_endpoint = 10.0.0.9</code></pre>
       <tr><td><code>drcm_server --client --command=ping</code></td><td>Tests every active node. Add <code>-n"cmnode2"</code> for one node, <code>-c5</code> for a count.</td></tr>
       <tr><td><code>drcm_server --client --command=rstats</code></td><td>Raw per-node stats for custom reports. <code>-n"nodename"</code> for one node.</td></tr>
       <tr><td><code>drcm_server --client --command=printcfg</code></td><td>The loaded cluster configuration.</td></tr>
+      <tr><td><code>drcm_server --client --command=standby [--force]</code></td><td>Puts this node in standby: its peers take over its resources. See <a href="#standby">Standby</a>.</td></tr>
+      <tr><td><code>drcm_server --client --command=unstandby</code></td><td>Returns this node to service; it takes its resources back.</td></tr>
       <tr><td><code>drcm_server --client</code></td><td>Interactive console; type <code>help</code>.</td></tr>
     </tbody>
   </table></div>
@@ -680,6 +683,17 @@ done</code></pre>
 <pre><code># tail -f /var/log/drcm/drcm.log
 # tail -f /var/log/drcm/ipv4addr_resource.log     # floating IP scripts (IPv4 and IPv6)
 # journalctl -u drcm_server -f</code></pre>
+  <h3 id="standby">Standby (maintenance and failover testing)</h3>
+  <p>Standby moves a node's resources to its backup nodes while DRCM keeps running on it, for maintenance or to test that applications fail over. Run the commands on the node itself, as root or a <code>drcm</code> group member:</p>
+<pre><code># drcm_server --client --command=standby
+# drcm_server --client --command=cm_stat      # the node shows Standby
+# drcm_server --client --command=unstandby</code></pre>
+  <p><code>standby</code> first checks the peers. It refuses, and changes nothing, if no active peer with standby support (1.43 or later) answers, or if no answering peer backs up any of this node's resources. <code>--force</code> (or <code>standby force</code> in the console) skips that check; the resources then stop and run nowhere until <code>unstandby</code>. Resources that no answering peer backs up are listed as a warning.</p>
+  <p>In standby the node stops its crontabs, services and applications, then its floating IPs and file systems, and any resources it runs as a backup for other nodes. As when DRCM stops, <code>keep_filesystems=1</code> keeps the node's own file systems mounted; <code>keep_services</code> and <code>keep_applications</code> do not apply, standby always stops them. When every resource is stopped, the node reports standby in its keep alive replies and lists <code>node:standby</code> in <code>rstats</code> (<code>node:releasing</code> while it is still stopping). Its peers then take over at once, without waiting for <code>dead_node_count</code> missed keep alives and without the quorum, isolation and <code>takeover_check</code> gates, because the node is reachable and asked for it. The client waits and prints when each resource starts on a peer.</p>
+  <p>The standby state is kept in <code>standby_file</code> (default <code>/var/lib/drcm/standby</code>). A node that restarts or reboots while the file exists comes up in standby, and its peers keep its resources; the peers do not fail them back.</p>
+  <p><code>unstandby</code> removes the file. The peers stop their backup copies of the node's resources (after confirming the node for about 10 seconds), and the node starts each resource only once no peer still runs it, so a resource never runs on two nodes at once. If a peer has not released a resource after 180 seconds the node starts it anyway and logs a warning. The client prints when each resource is running again.</p>
+  <p>The standby and unstandby requests are accepted only from the node itself (a loopback or its own keep alive address) and must name its hostname. They are authenticated cluster frames, so the client needs the auth key. If a node stays in standby and no peer answers, it logs a warning that its resources may not be running anywhere.</p>
+  <div class="callout warn"><p><strong>Mixed versions.</strong> 1.42 nodes ignore the standby state, so they see a node in standby as alive and never take over its resources. Upgrade the backup nodes to 1.43 before using standby. 1.43 and 1.42 nodes otherwise work together in one cluster.</p></div>
   <h3>Testing failover and failback</h3>
 <pre><code># systemctl stop drcm_server       # on the primary: resources move to the backup
 # drcm_server --client --command=cm_stat    # from the backup
@@ -813,7 +827,7 @@ export TEXTlist="555-555-5555@vtext.com"</code></pre>
   <div class="table-wrap"><table>
     <thead><tr><th>Symptom</th><th>Check</th></tr></thead>
     <tbody>
-      <tr><td>Nodes see each other as dead after an upgrade</td><td>All nodes must run 1.42. Older nodes do not speak v2 frames.</td></tr>
+      <tr><td>Nodes see each other as dead after an upgrade</td><td>All nodes must run 1.42 or later. Older nodes do not speak v2 frames.</td></tr>
       <tr><td>Ping fails, frames rejected</td><td>Same <code>authkey</code> on every node (compare <code>authkey.sha1</code>), firewalld rules for the UDP/TCP ports, correct <code>keep_alive_ip</code>, <code>bind_to_keep_alive_ip</code>.</td></tr>
       <tr><td>Replay rejections with <code>replay_window_secs</code> set</td><td>Clocks drifted. Fix chrony, or set the window back to 0.</td></tr>
       <tr><td>TCP mode will not start</td><td><code>--check-config</code> reports missing TLS files. Check paths and modes, and that the key matches the certificate.</td></tr>

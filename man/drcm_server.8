@@ -1,6 +1,6 @@
 .\" DataReel Cluster Manager (DRCM) 1.X Manpage
 .\" Copyright (c) 2016-2026 DataReel Software Development
-.TH drcm_server 8 "25 Oct 2026" "1.42" "DataReel Cluster Manager"
+.TH drcm_server 8 "29 Oct 2026" "1.43" "DataReel Cluster Manager"
 .SH NAME
 drcm_server \- Start the DRCM service
 .SH SYNOPSIS
@@ -40,6 +40,8 @@ DataReel cluster manager service.
      --client                    Enter interactive client CM console
 .P
      --command="cm_command"      Execute a CM client command and exit
+.P
+     --force                     With --command=standby, standby even if no peer can take over
 .TP
 .B CM console command list: 
 .P

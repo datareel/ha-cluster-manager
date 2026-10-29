@@ -200,6 +200,10 @@ struct CMnode {
   gxString tls_peer_fingerprint;     // optional SHA-256 cert pin for this peer
   gxString floating_ip_provider;     // cloud provider hook, e.g. "aws"
 
+  // State this peer reported in its last keep alive reply (see
+  // CM_PEER_STATE_*). A 1.42 or older node sends no state.
+  volatile int peer_state;
+
 private:
   int cluster_take_over_flag;
   gxMutex cluster_take_over_flag_lock;
@@ -223,6 +227,20 @@ struct CMstatsnode {
   int is_alive;
   gxList<gxString> stats;
 };
+
+// Node state carried in keep alive and ping replies (CMnode::peer_state)
+const int CM_PEER_STATE_UNKNOWN = 0;  // no state in the reply (DRCM 1.42 or older)
+const int CM_PEER_STATE_ACTIVE = 1;   // running its resources normally
+const int CM_PEER_STATE_RELEASING = 2; // standby requested, still stopping resources
+const int CM_PEER_STATE_STANDBY = 3;  // in standby, all resources stopped
+
+// Resource threads, used to index CMconfig::standby_released
+const int CM_RES_CRONTABS = 0;
+const int CM_RES_IPADDRS = 1;
+const int CM_RES_SERVICES = 2;
+const int CM_RES_APPLICATIONS = 3;
+const int CM_RES_FILESYSTEMS = 4;
+const int CM_NUM_RES_THREADS = 5;
 
 // Cluster transport selection (servercfg->cluster_transport)
 const int CM_TRANSPORT_UDP = 0; // UDP keep alive, same-subnet clusters (default)
@@ -287,6 +305,17 @@ struct CMconfig {
   int isolation_recover_secs;     // isolated node resumes after the check passes this long
   gxString takeover_check;        // script path, empty = disabled (default)
   volatile int node_isolated;     // 1 = this node stood down its resources
+
+  // Standby: an operator asked this node to release its resources so
+  // the peers take them over (drcm_server --client --command=standby).
+  // The state survives a restart through standby_file. Peers are told
+  // only after every resource thread has stopped its resources.
+  gxString standby_file;          // default /var/lib/drcm/standby
+  volatile int node_standby;      // 1 = standby requested
+  volatile int standby_released[CM_NUM_RES_THREADS]; // 1 = thread stopped its resources
+  volatile int resource_wake;     // bumped when a take over flag changes
+  int my_node_index;              // position of this node in the config, staggers takeovers
+  int client_force;               // --force for the standby client command
 
   gxString my_hostname;
   gxString run_dir, log_dir, spool_dir;

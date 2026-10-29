@@ -1,0 +1,6 @@
+# Test node image for the DRCM standby tests. libasan and libubsan let
+# the same image run an AddressSanitizer build.
+FROM registry.access.redhat.com/ubi10/ubi-init
+RUN dnf -y --disablerepo="*" --enablerepo="ubi-10-*" install \
+    procps-ng hostname libasan libubsan openssl && dnf clean all
+COPY fakesu /usr/local/bin/su

@@ -1,6 +1,6 @@
 PROJECT_DEP = drcm_server.h  m_app.h  m_config.h  m_dbase.h \
 m_help.h  m_log.h  m_proc.h  m_socket.h  m_stats.h  m_thread.h \
-m_crypto.h  m_tls.h
+m_crypto.h  m_tls.h  m_standby.h
 
 M_THREAD_DEP = $(PROJECT_DEP)
 
@@ -19,6 +19,8 @@ M_APP_DEP = $(PROJECT_DEP)
 M_CONFIG_DEP = $(PROJECT_DEP)
 
 M_STATS_DEP = $(PROJECT_DEP)
+
+M_STANDBY_DEP = $(PROJECT_DEP)
 
 $(PROJECT)$(OBJ_EXT):	$(PROJECT).cpp $(PROJECT_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) $(PROJECT).cpp
@@ -50,6 +52,9 @@ m_config$(OBJ_EXT):	m_config.cpp $(M_CONFIG_DEP)
 m_stats$(OBJ_EXT):	m_stats.cpp $(M_STATS_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) m_stats.cpp
 
+m_standby$(OBJ_EXT):	m_standby.cpp $(M_STANDBY_DEP)
+	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) m_standby.cpp
+
 # m_crypto and m_tls use the OpenSSL headers directly and depend only
 # on their own headers, not the whole DRCM header set.
 m_crypto$(OBJ_EXT):	m_crypto.cpp m_crypto.h
@@ -68,5 +73,6 @@ m_dbase$(OBJ_EXT) \
 m_app$(OBJ_EXT) \
 m_config$(OBJ_EXT) \
 m_stats$(OBJ_EXT) \
+m_standby$(OBJ_EXT) \
 m_crypto$(OBJ_EXT) \
 m_tls$(OBJ_EXT)
