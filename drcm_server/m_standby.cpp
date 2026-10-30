@@ -43,6 +43,7 @@ Node standby for the Datareel cluster manager. See m_standby.h.
 
 #include "drcm_server.h"
 #include "m_standby.h"
+#include "m_tls.h"
 
 // Stats names for each resource thread, as used in the stats buffer
 // ("cron:nick" for this node's own, "backup_cron:nick" for a backup)
@@ -272,7 +273,7 @@ static int write_standby_file(gxString &err)
   return 0;
 }
 
-int cm_standby_load()
+int cm_standby_load(gxString &message)
 {
   if(!futils_exists(servercfg->standby_file.c_str())) return 0;
 
@@ -295,7 +296,8 @@ int cm_standby_load()
   update_standby_stats();
   standby_lock.MutexUnlock();
 
-  gxString message;
+  // The caller prints this with NT_print: this runs just after the log
+  // thread starts, when a queued LogMessage can still be lost
   if(until) {
     gxString when;
     format_time(until, when);
@@ -306,7 +308,6 @@ int cm_standby_load()
     message << clear << "Starting in standby, " << servercfg->standby_file
 	    << " exists. This node will not run any resources until drcm_server --client --command=unstandby";
   }
-  LogMessage(message.c_str());
   return 1;
 }
 
@@ -347,30 +348,103 @@ static int leave_standby(const char *reason, gxString &reply)
   return 0;
 }
 
-int cm_handle_standby_request(const CMFrame &f, const char *client_name, gxString &reply)
+// 1 if a TLS peer fingerprint matches a node's tls_peer_fingerprint
+static int fingerprint_matches(const char *peer_fp, const gxString &node_fp)
+{
+  char want[160];
+  cm_tls_normalize_fingerprint(node_fp.c_str(), want, sizeof(want));
+  return peer_fp && strcmp(peer_fp, want) == 0;
+}
+
+int cm_handle_standby_request(const CMFrame &f, const char *client_name, gxString &reply,
+			      const char *tls_peer_fp)
 {
   gxString message;
   int standby = (f.command == CM_CMD_STANDBY);
   const char *what = standby ? "standby" : "unstandby";
+  CMnode *me = this_cm_node();
 
-  if(!request_is_local(client_name)) {
-    reply << clear << "ERROR - " << what << " requests are only accepted from this host";
-    message << clear << "WARNING - Rejected " << what << " request from " << client_name;
-    LogMessage(message.c_str());
-    return CM_CMD_NAK;
-  }
-
-  // Payload: this node's hostname, then for a timed standby (1.46) a
-  // second line time=SECONDS. Older servers compare the whole payload
-  // with their hostname, so they refuse a timed request.
-  gxString payload, hostname, time_arg;
+  // Payload, one item per line: the target node's hostname first, then
+  // optional from=HOSTNAME (a remote request, 1.47) and time=SECONDS (a
+  // timed standby, 1.46). A remote request puts from= before time=, so a
+  // 1.46 server refuses it as a bad time, and 1.43 and 1.44 servers
+  // refuse any payload that is not just their hostname.
+  gxString payload, hostname, line, from;
   payload_string(f, payload);
-  hostname = payload;
   long secs = 0;
-  if(payload.Find("\n") != -1) {
-    hostname.DeleteAfterIncluding("\n");
-    time_arg = payload;
-    time_arg.DeleteBeforeIncluding("\n");
+  int bad_line = 0;
+  hostname = payload;
+  if(hostname.Find("\n") != -1) hostname.DeleteAfterIncluding("\n");
+  gxString rest = payload;
+  if(rest.Find("\n") != -1) rest.DeleteBeforeIncluding("\n");
+  else rest.Clear();
+  while(!rest.is_null()) {
+    line = rest;
+    if(line.Find("\n") != -1) {
+      line.DeleteAfterIncluding("\n");
+      rest.DeleteBeforeIncluding("\n");
+    }
+    else {
+      rest.Clear();
+    }
+    if(line.Find("from=") == 0) {
+      from = line;
+      from.DeleteBeforeIncluding("from=");
+    }
+    else if(line.Find("time=") == 0 && standby) {
+      gxString v = line;
+      v.DeleteBeforeIncluding("time=");
+      secs = v.Atol();
+      if(secs <= 0 || secs > CM_STANDBY_MAX_SECS) bad_line = 1;
+    }
+    else {
+      bad_line = 1;
+    }
+  }
+  if(from.is_null()) {
+    // Local request. Over TCP the client must also present this node's
+    // own certificate when it is pinned, because in a tunnel setup a
+    // peer's connection also comes from a loopback address.
+    int local = request_is_local(client_name);
+    if(local && tls_peer_fp && me && !me->tls_peer_fingerprint.is_null() &&
+       !fingerprint_matches(tls_peer_fp, me->tls_peer_fingerprint)) {
+      local = 0;
+    }
+    if(!local) {
+      reply << clear << "ERROR - " << what << " requests are only accepted from this host";
+      message << clear << "WARNING - Rejected " << what << " request from " << client_name;
+      LogMessage(message.c_str());
+      return CM_CMD_NAK;
+    }
+  }
+  else {
+    // Remote request from another cluster node (1.47). The requester is
+    // known by the hostname it names and, over TCP, by its certificate,
+    // never by the source address.
+    CMnode *requester = 0;
+    gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
+    while(ptr) {
+      if(ptr->data->hostname == from) requester = ptr->data;
+      ptr = ptr->next;
+    }
+    const char *refusal = 0;
+    if(!requester || requester == me) refusal = "it does not come from another node in the CM config";
+    else if(!requester->node_is_active) refusal = "the requesting node is inactive in the CM config";
+    else if(!me || !me->allow_remote_standby) refusal = "allow_remote_standby is off for this node";
+    else if(servercfg->cluster_transport == CM_TRANSPORT_TCP && !tls_peer_fp) {
+      refusal = "in a TCP cluster a remote request must come over TLS";
+    }
+    else if(tls_peer_fp && !requester->tls_peer_fingerprint.is_null() &&
+	    !fingerprint_matches(tls_peer_fp, requester->tls_peer_fingerprint)) {
+      refusal = "the TLS certificate does not match the requesting node";
+    }
+    if(refusal) {
+      reply << clear << "ERROR - remote " << what << " refused by " << servercfg->my_hostname << ": " << refusal;
+      message << clear << "WARNING - Rejected remote " << what << " request from " << from
+	      << " (" << client_name << "): " << refusal;
+      LogMessage(message.c_str());
+      return CM_CMD_NAK;
+    }
   }
   if(hostname != servercfg->my_hostname) {
     reply << clear << "ERROR - " << what << " request is for " << hostname
@@ -379,20 +453,17 @@ int cm_handle_standby_request(const CMFrame &f, const char *client_name, gxStrin
     LogMessage(message.c_str());
     return CM_CMD_NAK;
   }
-  if(!time_arg.is_null()) {
-    gxString v = time_arg;
-    if(standby && v.Find("time=") == 0) {
-      v.DeleteBeforeIncluding("time=");
-      secs = v.Atol();
-    }
-    if(secs <= 0 || secs > CM_STANDBY_MAX_SECS) {
-      reply << clear << "ERROR - bad standby time, the limit is " << CM_STANDBY_MAX_TEXT;
-      return CM_CMD_NAK;
-    }
+  if(bad_line) {
+    reply << clear << "ERROR - bad " << what << " request, the standby time limit is " << CM_STANDBY_MAX_TEXT;
+    return CM_CMD_NAK;
+  }
+  if(!from.is_null()) {
+    message << clear << "Remote " << what << " request from " << from << " (" << client_name << ")";
+    LogMessage(message.c_str());
   }
 
   // Refuse an old request even when replay_window_secs is off. The
-  // client runs on this host, so the clocks agree.
+  // cluster nodes' clocks must agree within this age (NTP).
   time_t now = time(0);
   if(!(f.flags & CM_FLAG_HAS_TIMESTAMP) ||
      (uint64_t)now + CM_STANDBY_REQUEST_MAX_AGE < f.timestamp ||
@@ -585,17 +656,27 @@ static const char *state_name(int state)
 }
 
 // Send a STANDBY or UNSTANDBY request to this node's server
-static int client_send_request(CMnode *me, int cmd, long secs = 0)
+// Send a STANDBY or UNSTANDBY request to target's server. A remote
+// request (target is another node) names this host with from=.
+static int client_send_request(CMnode *target, int cmd, long secs, int remote)
 {
   unsigned char rxbuf[CM_RX_BUF_SIZE];
   int bytes_read = 0;
   const char *what = (cmd == CM_CMD_STANDBY) ? "standby" : "unstandby";
-  gxString payload = servercfg->my_hostname;
+  gxString payload = target->hostname;
+  if(remote) payload << "\n" << "from=" << servercfg->my_hostname;
   if(secs > 0) payload << "\n" << "time=" << secs;
-  if(cm_node_exchange(me, cmd, payload.c_str(), (int)payload.length(),
+  if(cm_node_exchange(target, cmd, payload.c_str(), (int)payload.length(),
 		      rxbuf, sizeof(rxbuf), &bytes_read, 10, 0) != 0 || bytes_read <= 0) {
-    cout << "ERROR - No reply to the " << what << " request from the DRCM server on this node ("
-	 << me->keep_alive_ip.c_str() << "). Is drcm_server 1.43 or later running?" << "\n" << flush;
+    if(remote) {
+      cout << "ERROR - No reply to the " << what << " request from the DRCM server on " << target->nodename.c_str()
+	   << " (" << target->keep_alive_ip.c_str() << "). It may be down, or it rejected the request"
+	   << " as unauthenticated (see its DRCM log)." << "\n" << flush;
+    }
+    else {
+      cout << "ERROR - No reply to the " << what << " request from the DRCM server on this node ("
+	   << target->keep_alive_ip.c_str() << "). Is drcm_server 1.43 or later running?" << "\n" << flush;
+    }
     return 1;
   }
   CMFrame reply;
@@ -606,7 +687,14 @@ static int client_send_request(CMnode *me, int cmd, long secs = 0)
   gxString text;
   payload_string(reply, text);
   cout << text.c_str() << "\n" << flush;
-  if(reply.command != CM_CMD_ACK && secs > 0 && text.Find("request is for") != -1) {
+  if(reply.command != CM_CMD_ACK && remote &&
+     (text.Find("request is for") != -1 || text.Find("bad standby time") != -1 ||
+      text.Find("only accepted from this host") != -1)) {
+    // 1.43 to 1.46 servers refuse a payload with from=
+    cout << "The DRCM server on " << target->nodename.c_str()
+	 << " is older than 1.47 and has no remote standby, nothing was changed" << "\n" << flush;
+  }
+  else if(reply.command != CM_CMD_ACK && secs > 0 && text.Find("request is for") != -1) {
     // A 1.43 or 1.44 server compares the whole payload with its hostname
     cout << "The DRCM server on this node is older than 1.46 and has no --time, nothing was changed" << "\n" << flush;
   }
@@ -620,17 +708,41 @@ struct CMclientResource {
   int seen;
 };
 
-int cm_client_standby(int force, long secs)
+// The node a standby or unstandby acts on: target, or this node when
+// target is 0 or this host. Sets remote and the name used in messages.
+static CMnode *client_target(CMnode *target, int &remote, gxString &who)
 {
-  CMnode *me = this_cm_node();
-  if(!me) {
-    cout << "ERROR - This host " << servercfg->my_hostname.c_str() << " is not a node in the CM config" << "\n" << flush;
-    return 1;
+  remote = 0;
+  if(!target || target->hostname == servercfg->my_hostname) {
+    target = this_cm_node();
+    if(!target) {
+      cout << "ERROR - This host " << servercfg->my_hostname.c_str() << " is not a node in the CM config" << "\n" << flush;
+      return 0;
+    }
+    who = "This node";
+    return target;
   }
+  remote = 1;
+  who << clear << "Node " << target->nodename;
+  return target;
+}
+
+int cm_client_standby(int force, long secs, CMnode *target)
+{
+  int remote;
+  gxString who;
+  CMnode *me = client_target(target, remote, who);
+  if(!me) return 1;
 
   // The peers must be able to take over, or the resources would stop
   // and run nowhere
-  cout << "Checking the cluster peers" << "\n" << flush;
+  if(remote) {
+    cout << "Remote standby of " << me->nodename.c_str() << " from " << servercfg->my_hostname.c_str() << "\n";
+    cout << "Checking the peers of " << me->nodename.c_str() << "\n" << flush;
+  }
+  else {
+    cout << "Checking the cluster peers" << "\n" << flush;
+  }
   gxList<CMnode *> takeover_peers;
   gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
   while(ptr) {
@@ -698,12 +810,12 @@ int cm_client_standby(int force, long secs)
 	cout << "ERROR - No active peer that supports standby is answering, so nothing could take over" << "\n";
       }
       else {
-	cout << "ERROR - No answering peer backs up any of this node's resources, so nothing could take over" << "\n";
+	cout << "ERROR - No answering peer backs up any of the resources of " << me->nodename.c_str() << ", so nothing could take over" << "\n";
       }
-      cout << "this node's resources. Not entering standby. Use --force to stop them anyway." << "\n" << flush;
+      cout << "the resources of " << me->nodename.c_str() << ". Not entering standby. Use --force to stop them anyway." << "\n" << flush;
       return 1;
     }
-    cout << "WARNING - No peer can take over, --force given, this node's resources will stop" << "\n" << flush;
+    cout << "WARNING - No peer can take over, --force given, the resources of " << me->nodename.c_str() << " will stop" << "\n" << flush;
   }
   if(not_moving.GetHead()) {
     cout << "WARNING - No answering peer backs up these resources, they will stop until unstandby:" << "\n";
@@ -716,7 +828,7 @@ int cm_client_standby(int force, long secs)
   }
 
   client_start_time = time(0);
-  if(client_send_request(me, CM_CMD_STANDBY, secs) != 0) return 1;
+  if(client_send_request(me, CM_CMD_STANDBY, secs, remote) != 0) return 1;
 
   // Wait until this node has stopped everything and told its peers
   gxString stats_buffer, error_message;
@@ -731,11 +843,11 @@ int cm_client_standby(int force, long secs)
     sSleep(1);
   }
   if(!released) {
-    cout << "ERROR - This node did not release its resources in " << CM_CLIENT_STANDBY_WAIT_SECS
-	 << " seconds, see the DRCM log. It stays in standby." << "\n" << flush;
+    cout << "ERROR - " << who.c_str() << " did not release its resources in " << CM_CLIENT_STANDBY_WAIT_SECS
+	 << " seconds, see its DRCM log. It stays in standby." << "\n" << flush;
     return 1;
   }
-  cout << "This node stopped its resources after " << elapsed() << " seconds and is in standby" << "\n" << flush;
+  cout << who.c_str() << " stopped its resources after " << elapsed() << " seconds and is in standby" << "\n" << flush;
 
   // Wait for the peers to start them
   int num_left = 0;
@@ -773,19 +885,19 @@ int cm_client_standby(int force, long secs)
     gxString when, left;
     format_time(time(0) - elapsed() + secs, when);
     cm_format_duration(secs, left);
-    cout << "This node returns to service by itself at " << when.c_str() << " (" << left.c_str()
+    cout << who.c_str() << " returns to service by itself at " << when.c_str() << " (" << left.c_str()
 	 << " after the request), or run --command=unstandby sooner" << "\n" << flush;
   }
   return 0;
 }
 
-int cm_client_unstandby()
+int cm_client_unstandby(CMnode *target)
 {
-  CMnode *me = this_cm_node();
-  if(!me) {
-    cout << "ERROR - This host " << servercfg->my_hostname.c_str() << " is not a node in the CM config" << "\n" << flush;
-    return 1;
-  }
+  int remote;
+  gxString who;
+  CMnode *me = client_target(target, remote, who);
+  if(!me) return 1;
+  if(remote) cout << "Remote unstandby of " << me->nodename.c_str() << " from " << servercfg->my_hostname.c_str() << "\n" << flush;
 
   gxList<CMclientResource> own;
   int num_left = 0;
@@ -805,7 +917,7 @@ int cm_client_unstandby()
   }
 
   client_start_time = time(0);
-  if(client_send_request(me, CM_CMD_UNSTANDBY) != 0) return 1;
+  if(client_send_request(me, CM_CMD_UNSTANDBY, 0, remote) != 0) return 1;
 
   // The node starts each resource once no peer runs a backup copy of it
   gxString stats_buffer, error_message;
@@ -816,7 +928,7 @@ int cm_client_unstandby()
 	if(!optr->data.seen && stats_buffer_has(stats_buffer, optr->data.stat)) {
 	  optr->data.seen = 1;
 	  num_left--;
-	  cout << "  " << optr->data.display.c_str() << " started on this node after "
+	  cout << "  " << optr->data.display.c_str() << " started on " << (remote ? me->nodename.c_str() : "this node") << " after "
 	       << elapsed() << " seconds" << "\n" << flush;
 	}
 	optr = optr->next;
@@ -825,11 +937,11 @@ int cm_client_unstandby()
     if(num_left > 0) sSleep(1);
   }
   if(num_left > 0) {
-    cout << "WARNING - " << num_left << " resources did not start on this node in "
+    cout << "WARNING - " << num_left << " resources did not start on " << (remote ? me->nodename.c_str() : "this node") << " in "
 	 << CM_CLIENT_STANDBY_WAIT_SECS << " seconds, check cm_stat and the DRCM log" << "\n" << flush;
     return 1;
   }
-  cout << "Unstandby complete, this node runs its resources again" << "\n" << flush;
+  cout << "Unstandby complete, " << (remote ? me->nodename.c_str() : "this node") << " runs its resources again" << "\n" << flush;
   return 0;
 }
 // ----------------------------------------------------------- //

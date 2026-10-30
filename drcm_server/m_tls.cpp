@@ -39,6 +39,15 @@ static void normalize_fp(const char *in, char *out, size_t out_n)
   out[j] = '\0';
 }
 
+void cm_tls_normalize_fingerprint(const char *in, char *out, size_t out_n)
+{
+  char tmp[160];
+  normalize_fp(in ? in : "", tmp, sizeof(tmp));
+  const char *w = tmp;
+  if(strncmp(w, "sha256", 6) == 0) w += 6;
+  snprintf(out, out_n, "%s", w);
+}
+
 CMTlsContext::CMTlsContext() : ctx(0), role(CM_TLS_CLIENT) { err_[0] = '\0'; }
 
 CMTlsContext::~CMTlsContext() { free_ctx(); }
@@ -97,7 +106,7 @@ cm_tls_status CMTlsContext::init(cm_tls_role r,
   return CM_TLS_OK;
 }
 
-CMTlsConn::CMTlsConn() : ssl(0), fd(-1) { err_[0] = '\0'; peer_subject_[0] = '\0'; }
+CMTlsConn::CMTlsConn() : ssl(0), fd(-1) { err_[0] = '\0'; peer_subject_[0] = '\0'; peer_fp_[0] = '\0'; }
 
 CMTlsConn::~CMTlsConn()
 {
@@ -152,6 +161,17 @@ cm_tls_status CMTlsConn::start(CMTlsContext *tctx, int sock_fd,
 
   X509_NAME *subj = X509_get_subject_name(peer);
   if(subj) X509_NAME_oneline(subj, peer_subject_, sizeof(peer_subject_));
+
+  // Keep the peer's fingerprint, so a request can be tied to the node
+  // whose tls_peer_fingerprint it matches
+  {
+    unsigned char pmd[EVP_MAX_MD_SIZE]; unsigned int pmdlen = 0;
+    if(X509_digest(peer, EVP_sha256(), pmd, &pmdlen) == 1) {
+      size_t j = 0;
+      for(unsigned int i = 0; i < pmdlen && j + 2 < sizeof(peer_fp_); i++)
+	j += (size_t)snprintf(peer_fp_ + j, sizeof(peer_fp_) - j, "%02x", pmd[i]);
+    }
+  }
 
   // Optional certificate pinning: require an exact SHA-256 fingerprint.
   if(required_fingerprint && required_fingerprint[0]) {

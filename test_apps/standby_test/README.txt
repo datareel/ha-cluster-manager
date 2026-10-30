@@ -1,7 +1,9 @@
 DRCM node standby tests
 
 Three DRCM nodes (n1, n2, n3) in rootless podman containers on the
-network drcmsbnet (10.89.77.0/24), using UDP keep alives. The
+network drcmsbnet (10.89.77.0/24), using UDP keep alives, or TCP + TLS
+with a test CA and pinned certificates when TRANSPORT=tcp. x4 and x2
+are client-only containers for the remote standby tests. The
 resources are fake (res.sh): each start and stop is written to
 shared/events.log, and analyze.py reports every move of a resource
 between nodes with its gap and any overlap.
@@ -11,7 +13,8 @@ between nodes with its gap and any overlap.
 
 Build drcm_server, then:
 
-  ./setup.sh start /path/to/drcm_server [/path/to/old/drcm_server [/path/to/1.44/drcm_server]]
+  [TRANSPORT=tcp] ./setup.sh start /path/to/drcm_server [/path/to/old/drcm_server
+      [/path/to/1.44/drcm_server [/path/to/1.46/drcm_server]]]
   ./run_tests.sh
   ./setup.sh stop
 
@@ -39,6 +42,12 @@ Tests:
      can be extended, shortened, made unlimited or cancelled, refuses
      bad times, and (with a third binary, 1.44) an older server
      refuses it.
+  9. Remote standby (1.47): n2 puts n1 (allow_remote_standby = 1) in
+     standby and n3 returns it; a remote timed standby and the console
+     form; refused when allow_remote_standby is off (n2), from a host not
+     in the config (x4), with the wrong auth key, with another node's
+     name but the wrong certificate (x2, TCP only), and by a 1.46 server
+     (fifth binary).
   7. Mixed: n2 runs the old binary. Standby is refused, and with
      --force the old n2 does not take over (no split brain).
 

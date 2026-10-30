@@ -24,6 +24,7 @@ start_drcm() { # node [old]
     local bin=/test/run/drcm_server.new
     [ "$2" == "old" ] && bin=/test/run/drcm_server.old
     [ "$2" == "prev" ] && bin=/test/run/drcm_server.prev
+    [ "$2" == "prev146" ] && bin=/test/run/drcm_server.prev146
     podman exec -d -e ASAN_OPTIONS=log_path=/var/log/drcm/asan:detect_leaks=0 \
 	-e UBSAN_OPTIONS=print_stacktrace=1:log_path=/var/log/drcm/ubsan $1 \
 	bash -c "mkdir -p /var/run/drcm /var/spool/drcm; exec $bin --config-file=/etc/drcm/cm.cfg >> /var/log/drcm/console.log 2>&1" > /dev/null
@@ -110,8 +111,14 @@ echo "== 5. Request from another host is rejected"
 podman exec n2 bash -c "sed 's/= 10.89.77.12$/= 10.89.77.11/' /etc/drcm/cm.cfg > /tmp/remote.cfg"
 podman exec n2 /test/run/drcm_server.new --client --config-file=/tmp/remote.cfg --command=standby --force > run/client.out 2>&1
 sed 's/^/    /' run/client.out
-check "n1 rejected the remote request" wait_for 10 log_has n1 "Rejected standby request from 10.89.77.12"
-check "the client reports the rejection" grep -q "only accepted from this host" run/client.out
+if [ "$(cat run/transport 2> /dev/null)" == "tcp" ]; then
+    # Over TLS the client pins the server it expects (n2's certificate),
+    # so it never talks to n1 at all
+    check "the client refused n1's certificate (no request sent)" grep -q "No reply to the standby request" run/client.out
+else
+    check "n1 rejected the remote request" wait_for 10 log_has n1 "Rejected standby request from 10.89.77.12"
+    check "the client reports the rejection" grep -q "only accepted from this host" run/client.out
+fi
 check "n1 is not in standby" all_on n1
 check "n2 is not in standby" test ! -f run/n2/lib/standby
 
@@ -186,6 +193,81 @@ if [ -x run/drcm_server.prev ]; then
     check "n1 starts its resources on the 1.44 server" wait_for 120 all_on n1
     check "timed standby is refused by the 1.44 server" not client n1 --command=standby --time=30s
     check "the client explains the server is too old" grep -q "older than 1.46" run/client.out
+    check "n1 is not in standby" test ! -f run/n1/lib/standby
+    check "n1 still runs its resources" all_on n1
+    stop_drcm n1; start_drcm n1
+    check "n1 back on the new server" wait_for 120 all_on n1
+fi
+
+TRANSPORT=$(cat run/transport 2> /dev/null || echo udp)
+xclient() { # container args... (a client-only container, output in run/client.out)
+    local c=$1; shift
+    podman exec $c /test/run/drcm_server.new --client "$@" > $T/run/client.out 2>&1
+    local rv=$?
+    sed 's/^/    /' $T/run/client.out
+    return $rv
+}
+
+echo "== 9. Remote standby ($TRANSPORT)"
+mark remote1
+check "remote standby of n1 from n2 succeeds" client n2 --command=standby -nn1
+check "n2 runs all of n1's resources" all_on n2
+check "n1 runs none of them" none_on n1
+check "n1 logged who asked" wait_for 10 log_has n1 "Remote standby request from n2"
+check "standby file written on n1" test -f run/n1/lib/standby
+check "no overlap in the remote standby" ./analyze.py $EV remote1
+mark remote2
+check "remote unstandby of n1 from n3 succeeds" client n3 --command=unstandby -nn1
+check "n1 runs its resources again" all_on n1
+check "n2 stopped its backup copies" wait_for 10 none_on n2
+check "n1 logged the remote unstandby" wait_for 10 log_has n1 "Remote unstandby request from n3"
+check "no overlap in the remote unstandby" ./analyze.py $EV remote2
+./analyze.py $EV remote2 | grep "on n1.*gap"
+
+mark remote3
+check "remote timed standby of n1 from n2 (40s)" client n2 --command=standby -nn1 --time=40s
+check "n2 runs n1's resources" all_on n2
+check "n1 returns by itself when the time is up" wait_for 120 all_on n1
+check "n2 stopped its backup copies after the timer" wait_for 10 none_on n2
+check "no overlap in the remote timed standby" ./analyze.py $EV remote3
+
+check "console form: standby n1 from n2" bash -c "echo -e 'standby 30s n1\nexit' | podman exec -i n2 /test/run/drcm_server.new --client > run/console.out 2>&1; grep -q 'Standby complete' run/console.out"
+check "n1 returns after the console timed standby" wait_for 120 all_on n1
+wait_for 10 none_on n2 > /dev/null
+
+check "remote standby refused when allow_remote_standby is off (n2)" not client n1 --command=standby -nn2
+check "the refusal names the setting" grep -q "allow_remote_standby is off" run/client.out
+check "n2 still runs app2" test -f shared/state/app.app2.n2
+check "n2 is not in standby" test ! -f run/n2/lib/standby
+
+check "remote standby from a host not in the config is refused" not xclient x4 --command=standby -nn1 --force
+check "n1 rejected the unknown host" wait_for 10 log_has n1 "Rejected remote standby request from n4"
+check "n1 still runs its resources" all_on n1
+
+if [ "$TRANSPORT" == "tcp" ]; then
+    check "remote standby with another node's name but the wrong certificate is refused" not xclient x2 --command=standby -nn1 --force
+    check "n1 logged the certificate mismatch" wait_for 10 log_has n1 "certificate does not match the requesting node"
+    check "n1 still runs its resources after the impostor" all_on n1
+fi
+
+# x4 with the wrong auth key: the frame fails authentication
+dd if=/dev/urandom bs=1024 count=2 of=run/etc_x4/.auth/authkey status=none
+sha1sum run/etc_x4/.auth/authkey | cut -b1-40 > run/etc_x4/.auth/authkey.sha1
+check "remote standby with the wrong auth key gets no answer" not xclient x4 --command=standby -nn1 --force
+check "n1 still runs its resources after the bad key" all_on n1
+if [ "$TRANSPORT" == "udp" ]; then
+    check "n1 rejected the unauthenticated frame" wait_for 10 log_has n1 "Rejected unauthenticated or malformed frame from 10.89.77.14"
+else
+    check "n1 rejected the unauthenticated frame" wait_for 10 log_has n1 "Rejected unauthenticated or malformed TCP frame from 10.89.77.14"
+fi
+
+if [ -x run/drcm_server.prev146 ]; then
+    echo "== 9b. A 1.46 server refuses a remote standby"
+    stop_drcm n1; start_drcm n1 prev146
+    check "n1 starts its resources on the 1.46 server" wait_for 120 all_on n1
+    check "remote standby is refused by the 1.46 server" not client n2 --command=standby -nn1
+    check "the client explains the target is too old" grep -q "older than 1.47" run/client.out
+    check "remote timed standby is refused by the 1.46 server" not client n2 --command=standby -nn1 --time=30s
     check "n1 is not in standby" test ! -f run/n1/lib/standby
     check "n1 still runs its resources" all_on n1
     stop_drcm n1; start_drcm n1

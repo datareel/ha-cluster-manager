@@ -81,7 +81,8 @@ void cm_format_duration(long secs, gxString &out);
 
 // Server side
 // Read standby_file at start up. Returns 1 if this node starts in standby.
-int cm_standby_load();
+// message says why and, for a timed standby, until when.
+int cm_standby_load(gxString &message);
 
 // Called from the keep alive thread: ends a timed standby whose time
 // is up, the same way as an unstandby request
@@ -105,7 +106,12 @@ int cm_standby_may_release(int res_thread);
 // Handle a STANDBY or UNSTANDBY request frame from client_name. Fills
 // reply with a message for the client and returns CM_CMD_ACK or
 // CM_CMD_NAK.
-int cm_handle_standby_request(const CMFrame &f, const char *client_name, gxString &reply);
+// tls_peer_fp is the client's certificate fingerprint over TCP, or 0.
+// A remote request (from= line, 1.47) needs allow_remote_standby on
+// this node, a requester that is an active node in the config and,
+// when that node's tls_peer_fingerprint is set, a matching certificate.
+int cm_handle_standby_request(const CMFrame &f, const char *client_name, gxString &reply,
+			      const char *tls_peer_fp = 0);
 
 // Read the CM_PEER_STATE_* value from an authenticated keep alive or
 // ping reply
@@ -129,9 +135,11 @@ struct CMFailbackWait {
 };
 
 // Client side commands. Return 0 on success.
-// secs > 0 is a timed standby (--time)
-int cm_client_standby(int force, long secs = 0);
-int cm_client_unstandby();
+// secs > 0 is a timed standby (--time). target is the node to put in
+// standby: 0 or this node for a local request, another node for a
+// remote request (1.47, the target needs allow_remote_standby = 1).
+int cm_client_standby(int force, long secs = 0, CMnode *target = 0);
+int cm_client_unstandby(CMnode *target = 0);
 
 #endif // __DRCM_STANDBY_HPP__
 // ----------------------------------------------------------- //
