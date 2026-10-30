@@ -11,7 +11,7 @@ between nodes with its gap and any overlap.
 
 Build drcm_server, then:
 
-  ./setup.sh start /path/to/drcm_server [/path/to/old/drcm_server]
+  ./setup.sh start /path/to/drcm_server [/path/to/old/drcm_server [/path/to/1.44/drcm_server]]
   ./run_tests.sh
   ./setup.sh stop
 
@@ -35,6 +35,10 @@ Tests:
   5. A standby request sent from n2 for n1 is rejected.
   6. With n2 and n3 stopped, standby is refused; --force stops n1's
      own resources and the app2 and app3 backups it took over.
+  8. Timed standby (--time): returns on time, survives a DRCM restart,
+     can be extended, shortened, made unlimited or cancelled, refuses
+     bad times, and (with a third binary, 1.44) an older server
+     refuses it.
   7. Mixed: n2 runs the old binary. Standby is refused, and with
      --force the old n2 does not take over (no split brain).
 

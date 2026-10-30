@@ -40,6 +40,7 @@ Program config functions for Datareel cluster manager.
 
 #include "drcm_server.h"
 #include "m_config.h"
+#include "m_standby.h"
 
 CMconfig ServerConfigSruct;
 CMconfig *servercfg = &ServerConfigSruct;
@@ -190,6 +191,8 @@ CMconfig::CMconfig()
   resource_wake = 0;
   my_node_index = 0;
   client_force = 0;
+  standby_until = 0;
+  client_standby_secs = 0;
 
   accept_clients = 1;
   echo_loop = 1;
@@ -422,6 +425,14 @@ int ProcessDashDashArg(gxString &arg)
   }
   if(arg == "force") {
     servercfg->client_force = 1;
+    has_arg = 1;
+  }
+  if(arg == "time") {
+    if(equal_arg.is_null() || cm_parse_duration(equal_arg.c_str(), servercfg->client_standby_secs) != 0) {
+      servercfg->verbose = 1;
+      NT_print("Error --time needs a duration such as 2h, 55m, 90s or 1h30m, up to", CM_STANDBY_MAX_TEXT);
+      error_level = 1;
+    }
     has_arg = 1;
   }
 

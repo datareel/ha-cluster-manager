@@ -945,6 +945,8 @@ int print_console_help()
     cout << "Put this node in standby, its peers take over its resources:" << "\n";
     cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=standby" << "\n";
     cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=standby --force" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=standby --time=2h" << "\n";
+    cout << "\t(--time=55m, 90s or 1h30m: the node returns to service by itself, up to " << CM_STANDBY_MAX_TEXT << ")" << "\n";
     cout << "\n";
     cout << "Return this node to service, it takes back its resources:" << "\n";
     cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=unstandby" << "\n";
@@ -963,6 +965,7 @@ int print_console_help()
     cout << "rstats node - Print raw stats for single node by name or IP" << "\n";
     cout << "standby     - Put this node in standby, peers take over its resources" << "\n";
     cout << "standby force - Standby even if no peer can take over" << "\n";
+    cout << "standby 2h  - Timed standby, the node returns to service after 2h (also 55m, 90s, 1h30m)" << "\n";
     cout << "unstandby   - Return this node to service" << "\n";
   }
 
@@ -990,8 +993,25 @@ int run_console_command(const gxString &command)
   if(!arg.is_null() && sbuf == "ping") return ping_cluster_node(arg); 
   if(!arg.is_null() && sbuf == "rstats") return get_rstats_node(arg); 
   if(sbuf == "standby") {
-    if(!arg.is_null() && arg != "force") return -1;
-    return cm_client_standby(servercfg->client_force || arg == "force");
+    // Console: standby [force] [time], such as "standby 2h"
+    int force = servercfg->client_force;
+    long secs = servercfg->client_standby_secs;
+    gxString words = arg, word;
+    while(!words.is_null()) {
+      words.TrimLeadingSpaces();
+      word = words;
+      if(word.Find(" ") != -1) word.DeleteAfterIncluding(" ");
+      if(words.Find(" ") != -1) words.DeleteBeforeIncluding(" ");
+      else words.Clear();
+      if(word.is_null()) continue;
+      if(word == "force") force = 1;
+      else if(cm_parse_duration(word.c_str(), secs) != 0) {
+	cout << "standby: bad time " << word.c_str() << ", use a duration such as 2h, 55m, 90s or 1h30m, up to "
+	     << CM_STANDBY_MAX_TEXT << "\n" << flush;
+	return 1;
+      }
+    }
+    return cm_client_standby(force, secs);
   }
   if(sbuf == "unstandby" && arg.is_null()) return cm_client_unstandby();
   if(!console_command_is_valid(command)) return -1;
@@ -1196,6 +1216,7 @@ int cm_stat()
   int num_down = 0;
   int num_failedover = 0;
   int num_standby = 0;
+  gxString standby_until_lines;
 
   gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
   while(ptr) {
@@ -1349,6 +1370,21 @@ int cm_stat()
       while(lptr) {
 	if(lptr->data.Find("node:standby,") == 0) node_state = 2;
 	if(lptr->data.Find("node:releasing,") == 0) node_state = 1;
+	if(lptr->data.Find("node:standby_until=") == 0 && nptr->data.is_alive) {
+	  // Timed standby: node:standby_until=EPOCH,start time
+	  gxString v = lptr->data;
+	  v.DeleteBeforeIncluding("=");
+	  v.DeleteAfterIncluding(",");
+	  time_t until = (time_t)v.Atol();
+	  char buf[64];
+	  struct tm tmv;
+	  localtime_r(&until, &tmv);
+	  strftime(buf, sizeof(buf), "%b %d %H:%M", &tmv);
+	  gxString left;
+	  cm_format_duration((long)(until - time(0)), left);
+	  standby_until_lines << "  Standby: " << nptr->data.node.nodename << " returns to service at "
+			      << buf << " (" << left << " left)" << "\n";
+	}
 	lptr = lptr->next;
       }
       if(!nptr->data.is_alive) display << "Down";
@@ -1576,6 +1612,7 @@ int cm_stat()
   else if(num_standby > 1) {
     display << "  Standby: " << num_standby << " nodes in STANDBY, their resources run on their peers" << "\n";
   }
+  display << standby_until_lines;
   if(num_failedover == 0) {
     if(num_alive == 0) {
       display << "  Resource status: All cluster resources in FAILED state" << "\n";

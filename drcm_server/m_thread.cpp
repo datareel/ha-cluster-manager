@@ -494,6 +494,7 @@ static void cm_resource_check_sleep(int secs)
   while(secs-- > 0) {
     if(!servercfg->accept_clients || servercfg->restart_server || servercfg->kill_server) return;
     if(servercfg->node_isolated != isolated) return;
+    cm_standby_check_timer(); // a timed standby ends here once its time is up
     if(servercfg->node_standby != standby) return;
     if(wake_delay < 0 && servercfg->resource_wake != wake) wake_delay = servercfg->my_node_index * 5;
     if(wake_delay == 0) return;
@@ -522,6 +523,8 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
   while(servercfg->accept_clients) { 
     if(servercfg->restart_server) break;
     if(servercfg->kill_server) break;
+
+    cm_standby_check_timer();
 
     if(servercfg->debug && servercfg->debug_level >= 5) {
       if(message_count == 0) {

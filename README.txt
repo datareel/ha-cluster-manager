@@ -1,4 +1,4 @@
-DataReel Cluster Manager (DRCM) 1.44 Readme File
+DataReel Cluster Manager (DRCM) 1.46 Readme File
 Copyright (c) 2024 DataReel Software Development
 
 Online docs:
@@ -782,6 +782,9 @@ later), run on that node:
 # drcm_server --client --command=standby
 # drcm_server --client --command=cm_stat
 # drcm_server --client --command=unstandby
+
+Add --time=2h (or 55m, 90s, 1h30m, up to 7d) to standby and the node
+returns to service by itself when the time is up (1.46 and later).
 
 standby refuses if no peer can take over (--force overrides). The node
 stays in standby across restarts until unstandby, and unstandby starts

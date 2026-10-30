@@ -5,6 +5,29 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+## [1.46] - 2026-10-29
+
+There is no 1.45. 1.46 works with 1.43 and 1.44 nodes; only the node
+put in timed standby needs 1.46.
+
+### Added
+- Timed standby: `drcm_server --client --command=standby --time=2h`
+  (also `55m`, `90s`, `1h30m`; units d, h, m and s, up to 7 days;
+  console: `standby 2h`, `standby force 2h`). When the time is up the
+  node returns to service by itself, the same way as `unstandby`, so it
+  waits for the peers to stop their backup copies first. It returns
+  even if no peer answers then.
+- The end time is kept in the standby file (`until=EPOCH`), so the
+  timer survives a DRCM restart or reboot; a node that starts after the
+  end time returns to service at once.
+- `standby --time=...` on a node already in standby sets a new end
+  time; a plain `standby` removes the limit; `unstandby` cancels it.
+- `cm_stat` shows when a node in timed standby returns to service, and
+  `rstats` lists `node:standby_until=EPOCH`.
+- `test_apps/standby_test` section 8: timer expiry, restart in the
+  middle of a timer, extend, shorten, remove and cancel, bad times, and
+  a 1.44 server refusing a timed request (optional third binary).
+
 ## [1.44] - 2026-10-29
 
 ### Fixed

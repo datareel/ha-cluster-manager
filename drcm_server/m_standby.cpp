@@ -89,6 +89,57 @@ static void payload_string(const CMFrame &f, gxString &s)
   delete[] buf;
 }
 
+int cm_parse_duration(const char *s, long &secs)
+{
+  secs = 0;
+  if(!s || !*s) return 1;
+  long total = 0;
+  const char *p = s;
+  while(*p) {
+    if(*p < '0' || *p > '9') return 1;
+    long n = 0;
+    while(*p >= '0' && *p <= '9') {
+      n = n * 10 + (*p - '0');
+      if(n > CM_STANDBY_MAX_SECS) return 1;
+      p++;
+    }
+    long unit;
+    switch(*p) {
+      case 'd': case 'D': unit = 86400; break;
+      case 'h': case 'H': unit = 3600; break;
+      case 'm': case 'M': unit = 60; break;
+      case 's': case 'S': unit = 1; break;
+      default: return 1; // every number needs a unit
+    }
+    p++;
+    total += n * unit;
+    if(total > CM_STANDBY_MAX_SECS) return 1;
+  }
+  if(total <= 0) return 1;
+  secs = total;
+  return 0;
+}
+
+void cm_format_duration(long secs, gxString &out)
+{
+  out.Clear();
+  if(secs < 0) secs = 0;
+  long d = secs / 86400, h = (secs % 86400) / 3600, m = (secs % 3600) / 60, sec = secs % 60;
+  if(d) out << d << "d";
+  if(h) out << h << "h";
+  if(m && d == 0) out << m << "m";
+  if((sec && d == 0 && h == 0) || out.is_null()) out << sec << "s";
+}
+
+static void format_time(time_t t, gxString &out)
+{
+  char buf[64];
+  struct tm tmv;
+  localtime_r(&t, &tmv);
+  strftime(buf, sizeof(buf), "%b %d %H:%M:%S", &tmv);
+  out = buf;
+}
+
 static CMnode *this_cm_node()
 {
   gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
@@ -135,11 +186,21 @@ int cm_reply_peer_state(const CMFrame &reply)
 
 // Keep one node:releasing or node:standby line in the stats buffer
 // while this node is in standby, so rstats and cm_stat show it
+static gxString until_stat; // the node:standby_until=EPOCH line now in the stats
+
 static void update_standby_stats()
 {
   gxString releasing = "node:releasing";
   gxString standby = "node:standby";
   int state = cm_node_state();
+  if(!until_stat.is_null()) {
+    servercfg->stats.Remove(until_stat);
+    until_stat.Clear();
+  }
+  if(state != CM_PEER_STATE_ACTIVE && servercfg->standby_until) {
+    until_stat << clear << "node:standby_until=" << (long)servercfg->standby_until;
+    servercfg->stats.Add(until_stat, 1);
+  }
   if(state == CM_PEER_STATE_ACTIVE) {
     servercfg->stats.Remove(releasing);
     servercfg->stats.Remove(standby);
@@ -198,6 +259,12 @@ static int write_standby_file(gxString &err)
   SysTime logtime;
   fprintf(fp, "standby requested %s\n", logtime.GetSyslogTime());
   fprintf(fp, "Run drcm_server --client --command=unstandby to return this node to service\n");
+  if(servercfg->standby_until) {
+    gxString when;
+    format_time(servercfg->standby_until, when);
+    fprintf(fp, "# Timed standby, this node returns to service at %s\n", when.c_str());
+    fprintf(fp, "until=%ld\n", (long)servercfg->standby_until);
+  }
   if(fclose(fp) != 0) {
     err << clear << "cannot write " << servercfg->standby_file << ": " << strerror(errno);
     return 1;
@@ -209,15 +276,36 @@ int cm_standby_load()
 {
   if(!futils_exists(servercfg->standby_file.c_str())) return 0;
 
+  // A timed standby keeps its end time across a restart
+  time_t until = 0;
+  FILE *fp = fopen(servercfg->standby_file.c_str(), "r");
+  if(fp) {
+    char line[256];
+    long v;
+    while(fgets(line, sizeof(line), fp)) {
+      if(sscanf(line, "until=%ld", &v) == 1 && v > 0) until = (time_t)v;
+    }
+    fclose(fp);
+  }
+
   standby_lock.MutexLock();
   for(int i = 0; i < CM_NUM_RES_THREADS; i++) servercfg->standby_released[i] = 0;
+  servercfg->standby_until = until;
   servercfg->node_standby = 1;
   update_standby_stats();
   standby_lock.MutexUnlock();
 
   gxString message;
-  message << clear << "Starting in standby, " << servercfg->standby_file
-	  << " exists. This node will not run any resources until drcm_server --client --command=unstandby";
+  if(until) {
+    gxString when;
+    format_time(until, when);
+    message << clear << "Starting in standby, " << servercfg->standby_file
+	    << " exists. Timed standby, this node returns to service at " << when;
+  }
+  else {
+    message << clear << "Starting in standby, " << servercfg->standby_file
+	    << " exists. This node will not run any resources until drcm_server --client --command=unstandby";
+  }
   LogMessage(message.c_str());
   return 1;
 }
@@ -235,6 +323,30 @@ static int request_is_local(const char *client_name)
   return 0;
 }
 
+// End standby: remove the standby file and clear the state. The
+// resource threads then start this node's resources once the peers
+// have stopped their backup copies. Called with standby_lock held.
+static int leave_standby(const char *reason, gxString &reply)
+{
+  gxString message;
+  if(unlink(servercfg->standby_file.c_str()) != 0 && errno != ENOENT) {
+    reply << clear << "ERROR - still in standby, cannot remove " << servercfg->standby_file
+	  << ": " << strerror(errno);
+    message << clear << "ERROR - " << reason << ", but cannot remove " << servercfg->standby_file
+	    << ", staying in standby";
+    LogMessage(message.c_str());
+    return 1;
+  }
+  servercfg->node_standby = 0;
+  servercfg->standby_until = 0;
+  for(int i = 0; i < CM_NUM_RES_THREADS; i++) servercfg->standby_released[i] = 0;
+  update_standby_stats();
+  reply << clear << "OK - standby ended, this node will start its resources once the peers release them";
+  message << clear << reason << ", this node will start its resources once the peers release them";
+  LogMessage(message.c_str());
+  return 0;
+}
+
 int cm_handle_standby_request(const CMFrame &f, const char *client_name, gxString &reply)
 {
   gxString message;
@@ -248,14 +360,35 @@ int cm_handle_standby_request(const CMFrame &f, const char *client_name, gxStrin
     return CM_CMD_NAK;
   }
 
-  gxString hostname;
-  payload_string(f, hostname);
+  // Payload: this node's hostname, then for a timed standby (1.46) a
+  // second line time=SECONDS. Older servers compare the whole payload
+  // with their hostname, so they refuse a timed request.
+  gxString payload, hostname, time_arg;
+  payload_string(f, payload);
+  hostname = payload;
+  long secs = 0;
+  if(payload.Find("\n") != -1) {
+    hostname.DeleteAfterIncluding("\n");
+    time_arg = payload;
+    time_arg.DeleteBeforeIncluding("\n");
+  }
   if(hostname != servercfg->my_hostname) {
     reply << clear << "ERROR - " << what << " request is for " << hostname
 	  << ", this node is " << servercfg->my_hostname;
     message << clear << "WARNING - Rejected " << what << " request for " << hostname << " from " << client_name;
     LogMessage(message.c_str());
     return CM_CMD_NAK;
+  }
+  if(!time_arg.is_null()) {
+    gxString v = time_arg;
+    if(standby && v.Find("time=") == 0) {
+      v.DeleteBeforeIncluding("time=");
+      secs = v.Atol();
+    }
+    if(secs <= 0 || secs > CM_STANDBY_MAX_SECS) {
+      reply << clear << "ERROR - bad standby time, the limit is " << CM_STANDBY_MAX_TEXT;
+      return CM_CMD_NAK;
+    }
   }
 
   // Refuse an old request even when replay_window_secs is off. The
@@ -273,47 +406,73 @@ int cm_handle_standby_request(const CMFrame &f, const char *client_name, gxStrin
   standby_lock.MutexLock();
   int rv = CM_CMD_ACK;
   if(standby) {
-    if(servercfg->node_standby) {
+    time_t prev_until = servercfg->standby_until;
+    int was_standby = servercfg->node_standby;
+    servercfg->standby_until = secs ? now + secs : 0;
+    gxString err, when, left;
+    if(was_standby && !secs && !prev_until) {
       reply << clear << "OK - this node is already in standby";
     }
+    else if(write_standby_file(err) != 0) {
+      servercfg->standby_until = prev_until;
+      reply << clear << "ERROR - " << (was_standby ? "standby time not changed, " : "not entering standby, ") << err;
+      message << clear << "ERROR - Standby request failed, " << err;
+      LogMessage(message.c_str());
+      rv = CM_CMD_NAK;
+    }
     else {
-      gxString err;
-      if(write_standby_file(err) != 0) {
-	reply << clear << "ERROR - not entering standby, " << err;
-	message << clear << "ERROR - Standby request failed, " << err;
-	LogMessage(message.c_str());
-	rv = CM_CMD_NAK;
-      }
-      else {
+      if(!was_standby) {
 	for(int i = 0; i < CM_NUM_RES_THREADS; i++) servercfg->standby_released[i] = 0;
 	servercfg->node_standby = 1;
-	update_standby_stats();
-	reply << clear << "OK - standby started, this node is stopping its resources";
-	LogMessage("Standby requested, stopping all resources on this node so peers can take them over");
       }
+      update_standby_stats();
+      if(secs) {
+	format_time(servercfg->standby_until, when);
+	cm_format_duration(secs, left);
+      }
+      if(!was_standby) {
+	if(secs) {
+	  reply << clear << "OK - standby started until " << when << " (" << left << "), this node is stopping its resources";
+	  message << clear << "Standby requested until " << when << ", stopping all resources on this node so peers can take them over";
+	}
+	else {
+	  reply << clear << "OK - standby started, this node is stopping its resources";
+	  message << clear << "Standby requested, stopping all resources on this node so peers can take them over";
+	}
+      }
+      else if(secs) {
+	reply << clear << "OK - already in standby, it now ends at " << when << " (" << left << ")";
+	message << clear << "Standby time changed, this node returns to service at " << when;
+      }
+      else {
+	reply << clear << "OK - already in standby, the time limit is removed";
+	message << clear << "Standby time limit removed, this node stays in standby until unstandby";
+      }
+      LogMessage(message.c_str());
     }
   }
   else {
     if(!servercfg->node_standby) {
       reply << clear << "OK - this node is not in standby";
     }
-    else if(unlink(servercfg->standby_file.c_str()) != 0 && errno != ENOENT) {
-      reply << clear << "ERROR - still in standby, cannot remove " << servercfg->standby_file
-	    << ": " << strerror(errno);
-      message << clear << "ERROR - Unstandby request failed, cannot remove " << servercfg->standby_file;
-      LogMessage(message.c_str());
+    else if(leave_standby("Unstandby requested", reply) != 0) {
       rv = CM_CMD_NAK;
-    }
-    else {
-      servercfg->node_standby = 0;
-      for(int i = 0; i < CM_NUM_RES_THREADS; i++) servercfg->standby_released[i] = 0;
-      update_standby_stats();
-      reply << clear << "OK - standby ended, this node will start its resources once the peers release them";
-      LogMessage("Unstandby requested, this node will start its resources once the peers release them");
     }
   }
   standby_lock.MutexUnlock();
   return rv;
+}
+
+void cm_standby_check_timer()
+{
+  if(!servercfg->node_standby || !servercfg->standby_until) return;
+  if(time(0) < servercfg->standby_until) return;
+  standby_lock.MutexLock();
+  if(servercfg->node_standby && servercfg->standby_until && time(0) >= servercfg->standby_until) {
+    gxString reply;
+    leave_standby("Standby time ended", reply);
+  }
+  standby_lock.MutexUnlock();
 }
 
 CMFailbackWait::CMFailbackWait()
@@ -426,12 +585,14 @@ static const char *state_name(int state)
 }
 
 // Send a STANDBY or UNSTANDBY request to this node's server
-static int client_send_request(CMnode *me, int cmd)
+static int client_send_request(CMnode *me, int cmd, long secs = 0)
 {
   unsigned char rxbuf[CM_RX_BUF_SIZE];
   int bytes_read = 0;
   const char *what = (cmd == CM_CMD_STANDBY) ? "standby" : "unstandby";
-  if(cm_node_exchange(me, cmd, servercfg->my_hostname.c_str(), (int)servercfg->my_hostname.length(),
+  gxString payload = servercfg->my_hostname;
+  if(secs > 0) payload << "\n" << "time=" << secs;
+  if(cm_node_exchange(me, cmd, payload.c_str(), (int)payload.length(),
 		      rxbuf, sizeof(rxbuf), &bytes_read, 10, 0) != 0 || bytes_read <= 0) {
     cout << "ERROR - No reply to the " << what << " request from the DRCM server on this node ("
 	 << me->keep_alive_ip.c_str() << "). Is drcm_server 1.43 or later running?" << "\n" << flush;
@@ -445,6 +606,10 @@ static int client_send_request(CMnode *me, int cmd)
   gxString text;
   payload_string(reply, text);
   cout << text.c_str() << "\n" << flush;
+  if(reply.command != CM_CMD_ACK && secs > 0 && text.Find("request is for") != -1) {
+    // A 1.43 or 1.44 server compares the whole payload with its hostname
+    cout << "The DRCM server on this node is older than 1.46 and has no --time, nothing was changed" << "\n" << flush;
+  }
   return reply.command == CM_CMD_ACK ? 0 : 1;
 }
 
@@ -455,7 +620,7 @@ struct CMclientResource {
   int seen;
 };
 
-int cm_client_standby(int force)
+int cm_client_standby(int force, long secs)
 {
   CMnode *me = this_cm_node();
   if(!me) {
@@ -551,7 +716,7 @@ int cm_client_standby(int force)
   }
 
   client_start_time = time(0);
-  if(client_send_request(me, CM_CMD_STANDBY) != 0) return 1;
+  if(client_send_request(me, CM_CMD_STANDBY, secs) != 0) return 1;
 
   // Wait until this node has stopped everything and told its peers
   gxString stats_buffer, error_message;
@@ -604,6 +769,13 @@ int cm_client_standby(int force)
     return 1;
   }
   cout << "Standby complete" << "\n" << flush;
+  if(secs > 0) {
+    gxString when, left;
+    format_time(time(0) - elapsed() + secs, when);
+    cm_format_duration(secs, left);
+    cout << "This node returns to service by itself at " << when.c_str() << " (" << left.c_str()
+	 << " after the request), or run --command=unstandby sooner" << "\n" << flush;
+  }
   return 0;
 }
 

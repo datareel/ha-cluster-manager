@@ -66,9 +66,26 @@ const int CM_CLIENT_STANDBY_WAIT_SECS = 300;
 // captured request cannot be replayed after a restart
 const int CM_STANDBY_REQUEST_MAX_AGE = 300;
 
+// Longest timed standby (--time). A node whose time runs out takes
+// its resources back even if no peer answers, since the time limit is
+// there so the resources do not stay stopped.
+const long CM_STANDBY_MAX_SECS = 7L * 24 * 3600;
+#define CM_STANDBY_MAX_TEXT "7d"
+
+// Parse a duration such as 2h, 55m, 90s, 1h30m or 2d. Returns 0 and
+// sets secs if it is valid and no longer than CM_STANDBY_MAX_SECS.
+int cm_parse_duration(const char *s, long &secs);
+
+// Format seconds as 1h12m, 5m30s or 45s
+void cm_format_duration(long secs, gxString &out);
+
 // Server side
 // Read standby_file at start up. Returns 1 if this node starts in standby.
 int cm_standby_load();
+
+// Called from the keep alive thread: ends a timed standby whose time
+// is up, the same way as an unstandby request
+void cm_standby_check_timer();
 
 // Returns this node's CM_PEER_STATE_* value, and the keep alive reply
 // payload for it ("state:active", "state:releasing" or "state:standby").
@@ -112,7 +129,8 @@ struct CMFailbackWait {
 };
 
 // Client side commands. Return 0 on success.
-int cm_client_standby(int force);
+// secs > 0 is a timed standby (--time)
+int cm_client_standby(int force, long secs = 0);
 int cm_client_unstandby();
 
 #endif // __DRCM_STANDBY_HPP__

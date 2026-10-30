@@ -1,4 +1,4 @@
-DataReel Cluster Manager (DRCM) 1.44 Administrator Guide
+DataReel Cluster Manager (DRCM) 1.46 Administrator Guide
 Copyright (c) DataReel Software Development
 
 Plain text companion of docs/drcm.html. README.txt and CHANGELOG.md in
@@ -119,7 +119,7 @@ RPM install:
 Prebuilt RPMs for RHEL 8, 9 and 10 are on the downloads page,
 datareel.com/downloads/drcm.
 
-    $ sudo dnf -y install ./drcm_server-1.44-1.el9.x86_64.x86_64.rpm
+    $ sudo dnf -y install ./drcm_server-1.46-1.el9.x86_64.x86_64.rpm
     $ rpm -ql drcm_server          # files
     $ rpm -qc drcm_server          # configs
     $ sudo dnf -y remove drcm_server
@@ -129,12 +129,12 @@ Build your own RPM:
 The build needs gcc-c++, make, rpm-build and openssl-devel.
 
     $ cd $HOME; mkdir -pv git; cd $HOME/git
-    $ wget https://datareel.com/downloads/drcm/ha-cluster-manager-1.44.tar.gz
-    $ tar xzf ha-cluster-manager-1.44.tar.gz
-    $ mv ha-cluster-manager-1.44 ha-cluster-manager
+    $ wget https://datareel.com/downloads/drcm/ha-cluster-manager-1.46.tar.gz
+    $ tar xzf ha-cluster-manager-1.46.tar.gz
+    $ mv ha-cluster-manager-1.46 ha-cluster-manager
     $ cd $HOME/git/ha-cluster-manager/rpm_builder
     $ ./make_rhel10_rpm.sh         # or make_rhel9_rpm.sh, make_rhel8_rpm.sh
-    $ sudo dnf -y install $HOME/rpmbuild/RPMS/x86_64/drcm_server-1.44-1.el10.x86_64.x86_64.rpm
+    $ sudo dnf -y install $HOME/rpmbuild/RPMS/x86_64/drcm_server-1.46-1.el10.x86_64.x86_64.rpm
 
 Build from source:
 
@@ -641,9 +641,9 @@ Client commands:
       Raw per-node stats for custom reports. -n"nodename" for one node.
   drcm_server --client --command=printcfg
       The loaded cluster configuration.
-  drcm_server --client --command=standby [--force]
+  drcm_server --client --command=standby [--force] [--time=2h]
       Puts this node in standby: its peers take over its resources.
-      See Standby below.
+      --time ends the standby by itself. See Standby below.
   drcm_server --client --command=unstandby
       Returns this node to service; it takes its resources back.
   drcm_server --client
@@ -704,6 +704,27 @@ the node starts each resource only once no peer still runs it, so a
 resource never runs on two nodes at once. If a peer has not released a
 resource after 180 seconds the node starts it anyway and logs a
 warning. The client prints when each resource is running again.
+
+Timed standby (1.46 and later):
+
+    # drcm_server --client --command=standby --time=2h
+
+--time takes a duration such as 2h, 55m, 90s or 1h30m (units d, h, m
+and s; every number needs a unit), up to 7d. When the time is up the
+node returns to service by itself, exactly as with unstandby: it waits
+for its peers to stop their backup copies first. It returns even if no
+peer answers then, because the time limit is there so the resources do
+not stay stopped. The resources are typically back about 20 seconds
+after the end time, once the peers have released them. The end time is kept in the standby file (until=), so
+the timer keeps running through a DRCM restart or reboot, and a node
+that starts after its time is up returns to service at once. cm_stat
+shows when the node returns, and rstats lists node:standby_until=EPOCH.
+
+On a node already in standby, standby --time=... sets a new end time
+(to extend or shorten it) and a plain standby removes the time limit.
+unstandby before the end cancels the timer. In the console, use
+"standby 2h" or "standby force 2h". A 1.43 or 1.44 server refuses a
+timed request and nothing changes.
 
 The standby and unstandby requests are accepted only from the node
 itself (a loopback or its own keep alive address) and must name its
@@ -955,4 +976,4 @@ Support:
 * Questions and bug reports: datareel.com/contact.php
 * Release notes: CHANGELOG.md in the source distribution.
 
-DataReel Cluster Manager 1.44, GNU General Public License.
+DataReel Cluster Manager 1.46, GNU General Public License.

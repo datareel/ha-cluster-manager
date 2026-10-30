@@ -1,6 +1,6 @@
 .\" DataReel Cluster Manager (DRCM) 1.X Manpage
 .\" Copyright (c) 2016-2026 DataReel Software Development
-.TH drcm_server 1 "29 Oct 2026" "1.44" "DataReel Cluster Manager"
+.TH drcm_server 1 "29 Oct 2026" "1.46" "DataReel Cluster Manager"
 .SH NAME
 drcm_server --client \- Start the DRCM client for cluster monitoring
 .SH SYNOPSIS
@@ -53,9 +53,13 @@ drcm(8) for server start up options.
 .P
 	drcm_server --client --command=standby --force
 .P
+	drcm_server --client --command=standby --time=2h
+.P
 The node stops its resources and stays in standby, also across
 restarts, until unstandby. Without --force it refuses when no peer
-with standby support backs up its resources.
+with standby support backs up its resources. With --time (such as
+2h, 55m, 90s or 1h30m, up to 7d) the node returns to service by itself
+when the time is up, also after a restart.
 .TP
 .B Return this node to service, it takes its resources back:
 .P
