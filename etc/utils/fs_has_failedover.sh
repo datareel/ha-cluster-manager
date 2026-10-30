@@ -16,7 +16,23 @@ BACKUP_KEEPALIVE="${BACKUP_FILESYSTEMS_IP}"
 if [ ! -z "${PRIMARY_FILESYSTEMS_KEEPALIVE_IP}" ]; then PRIMARY_KEEPALIVE="${PRIMARY_FILESYSTEMS_KEEPALIVE_IP}"; fi
 if [ ! -z "${BACKUP_FILESYSTEMS_KEEPALIVE_IP}" ]; then BACKUP_KEEPALIVE="${BACKUP_FILESYSTEMS_KEEPALIVE_IP}"; fi
 
-${DRCM_server} --client --command=cm_stat | ${GREP} 'Cluster status: HEALTHY' &> /dev/null
+STAT=$(${DRCM_server} --client --command=cm_stat 2> /dev/null)
+
+# DRCM 1.43+ standby: a primary in standby has handed its resources to the backup on purpose. It still
+# answers pings, so the checks below would call that "not failed over"; report the fail over instead, so
+# the backup syncs back to it (failback flag) and the primary waits for that before it runs again.
+# Its member line: "  <nodename>\t<hostname>\tStandby\t<keep alive ip>" (Releasing while it stops).
+PRIMARY_HOST_SHORT="${PRIMARY_FILESYSTEMS_HOST}"
+echo "${STAT}" | awk -F'\t' -v ip="${PRIMARY_KEEPALIVE}" -v h="${PRIMARY_HOST_SHORT}" '
+    { split($2, a, "."); sub(/[ \t]+$/, "", $4) }
+    ($4 == ip || (h != "" && a[1] == h)) && $3 ~ /^Standby/ { f = 1 }
+    END { exit !f }'
+if [ $? -eq 0 ]; then
+    echo "TRUE"
+    exit 0
+fi
+
+echo "${STAT}" | ${GREP} 'Cluster status: HEALTHY' &> /dev/null
 if [ $? -eq 0 ]; then
     echo "FALSE"
     exit 0
