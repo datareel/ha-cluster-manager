@@ -66,14 +66,23 @@ json=$(curl -s -f --connect-timeout 10 --max-time 20 "${URL}/php/host_status.php
 if [ $? -ne 0 ] || [ -z "${json}" ]; then
     unreadable "cannot read ${URL}/php/host_status.php for ${HOST}"
 fi
-age=$(echo "${json}" | grep -o '"age_secs":-\?[0-9]*' | cut -d: -f2)
+# agent_age_secs (DRSM 2026-11-01+): how long since the host's own agent (Linux / Windows reporting agent)
+# last reported. age_secs is when the dashboard last ran its checks for the host, which it does every run
+# whether the agent reported or not, so for an agent host it never grows past the run interval. Use the
+# agent's age when the dashboard gives it, else age_secs (older dashboards, hosts checked without an agent).
+age=$(echo "${json}" | grep -o '"agent_age_secs":-\?[0-9]*' | cut -d: -f2)
+what="its agent last reported"
+if [ -z "${age}" ]; then
+    age=$(echo "${json}" | grep -o '"age_secs":-\?[0-9]*' | cut -d: -f2)
+    what="it last reported to the dashboard"
+fi
 if [ -z "${age}" ]; then
     unreadable "no age_secs in the dashboard reply for ${HOST}"
 fi
 
 if [ "${age}" -lt "${MAX_AGE}" ]; then
-    echo "${stamp} ALIVE ${HOST} reported to the dashboard ${age}s ago (under ${MAX_AGE}s), it is still alive"
+    echo "${stamp} ALIVE ${HOST}: ${what} ${age}s ago (under ${MAX_AGE}s), it is still alive"
     exit 1
 fi
-echo "${stamp} DOWN ${HOST} last reported ${age}s ago (over ${MAX_AGE}s), it is down"
+echo "${stamp} DOWN ${HOST}: ${what} ${age}s ago (over ${MAX_AGE}s), it is down"
 exit 0
