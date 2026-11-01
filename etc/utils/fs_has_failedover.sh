@@ -38,6 +38,22 @@ if [ $? -eq 0 ]; then
     exit 0
 fi
 
+# Failed over means the backup runs the cluster's resources: a resource line in cm_stat with the status
+# OK-Backup ("   Crontab:\t<nickname>\t<owner>\tOK-Backup\t<start time>", the same for the other resource
+# types). A peer that only looks Down is not a fail over: with just the cluster link cut (SSH tunnel down,
+# 2026-11-01 test) the takeover check kept the resources where they were, yet the ping checks below said
+# TRUE, so the backup's node gate allowed jobs and its file sync wrote failback flags, which would have
+# copied the backup's older data over the primary's at the next failback sync. When cm_stat answers, its
+# resources decide; the ping checks are only for a node whose own drcm_server does not answer.
+if [ -n "${STAT}" ] && echo "${STAT}" | ${GREP} -q 'Cluster status:'; then
+    if echo "${STAT}" | awk -F'\t' '$4 ~ /^OK-Backup/ { f = 1 } END { exit !f }'; then
+        echo "TRUE"
+    else
+        echo "FALSE"
+    fi
+    exit 0
+fi
+
 ${DRCM_server} --client --command=ping -c5 -n"${PRIMARY_KEEPALIVE}" &> /dev/null
 if [ $? -eq 0 ]; then
     echo "FALSE"
