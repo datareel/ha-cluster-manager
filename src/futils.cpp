@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/30/2025
-// Copyright (c) 2001-2025 DataReel Software Development
+// Date Last Modified: 10/31/2026
+// Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -726,8 +726,8 @@ GXDLCODE_API int futils_mode(const char *fname, int ugo,
       len = strlen(fname);
       offset = len - 4;
       for(i = offset, j = 0; i < len; i++, j++) {
-	dot_ext[j] = fname[i];
-	tolower(dot_ext[j]);
+	// 10/24/2026: Keep the result of tolower() so .EXE and .COM match
+	dot_ext[j] = (char)tolower((unsigned char)fname[i]);
       } 
       if(strcmp(dot_ext, ".exe") == 0) execute = 1;
       if(strcmp(dot_ext, ".com") == 0) execute = 1;
@@ -928,7 +928,15 @@ GXDLCODE_API int futils_mkdir(const char *dir_name)
 // will use 755 permissions when new directories are 
 // created.
 {
-  char *path = (char *)dir_name;
+  // 10/31/2026: Work on a copy. The path separators were changed in the
+  // caller's string (a crash for a string literal), a path longer than
+  // the buffer was copied without a null, and an empty name read
+  // sbuf[-1].
+  char pbuf[futils_MAX_PATH_LENGTH];
+  if(!dir_name || !*dir_name) return 1;
+  if(strlen(dir_name) >= futils_MAX_PATH_LENGTH) return 1;
+  strcpy(pbuf, dir_name);
+  char *path = pbuf;
   char path_sep;
   char sbuf[futils_MAX_PATH_LENGTH];
   unsigned i = 0; int rv;  
@@ -1075,6 +1083,9 @@ GXDLCODE_API int futils_chmod(const char *fname, const char *mode_str)
   int mode = 0;
   char obuf[81];
   memset(obuf, 0, sizeof(obuf));
+  // 10/31/2026: A mode string of 80 or more characters overflowed obuf
+  // (the copy, then the leading 0 moved it one more byte)
+  if(strlen(mode_str) >= (sizeof(obuf)-1)) return 1;
   strcpy(obuf, mode_str);
   char *p = obuf;
 
@@ -1146,6 +1157,12 @@ GXDLCODE_API int futils_chmod(const char *fname, futilPermissionMode pmode)
   return 0;
 }
 
+static void futils_strmove(char *to, const char *from)
+// 10/31/2026: strcpy() for strings that overlap
+{
+  memmove(to, from, strlen(from) + 1);
+}
+
 GXDLCODE_API void futils_pathsimplify(const char *path, char *new_path, 
 				      char path_sep)
 // Function used to canonicalize a path and return a new path.
@@ -1186,7 +1203,9 @@ GXDLCODE_API void futils_pathsimplify(const char *path, char *new_path,
     else
       break;
   }
-  if(i) strcpy(new_path, new_path + i - ddot);
+  // 10/31/2026: The copies inside new_path overlap, which strcpy() does
+  // not allow (undefined behaviour); futils_strmove() is memmove().
+  if(i) futils_strmove(new_path, new_path + i - ddot);
 
   // Replace single `.' or `..' with `/'.
   if((new_path[0] == '.' && new_path[1] == '\0') 
@@ -1220,7 +1239,7 @@ GXDLCODE_API void futils_pathsimplify(const char *path, char *new_path,
     }
 
     if((start + 1) != i) {
-      strcpy(new_path + start + 1, new_path + i);
+      futils_strmove(new_path + start + 1, new_path + i);
       i = start + 1;
     }
 
@@ -1240,7 +1259,7 @@ GXDLCODE_API void futils_pathsimplify(const char *path, char *new_path,
 
       // Handle `./' paths
       if(new_path[i + 1] == path_sep) {
-	strcpy(new_path + i, new_path + i + 1);
+	futils_strmove(new_path + i, new_path + i + 1);
 	i =(start < 0) ? 0 : start;
 	continue;
       }
@@ -1249,7 +1268,7 @@ GXDLCODE_API void futils_pathsimplify(const char *path, char *new_path,
       if(new_path[i + 1] == '.' &&
 	 (new_path[i + 2] == path_sep || !new_path[i + 2])) {
 	while(--start > -1 && new_path[start] != path_sep);
-	strcpy(new_path + start + 1, new_path + i + 2);
+	futils_strmove(new_path + start + 1, new_path + i + 2);
 	i = (start < 0) ? 0 : start;
 	continue;
       }
@@ -1278,11 +1297,14 @@ GXDLCODE_API int futils_genoutputfilename(const char *current_file,
   char *p;
   
   if(!out_file) return 1;
+  if(!current_file || !extension) return 1; // 10/31/2026: Null pointers
 
   for(i = 0; i < futils_MAX_NAME_LENGTH; i++) out_file[i] = '\0';
   p = (char *)current_file;
   len = strlen(p);
-  for(i = 0; i < len && i != futils_MAX_NAME_LENGTH; i++, p++) {
+  // 10/31/2026: Stop one short so out_file keeps its null (a name of
+  // futils_MAX_NAME_LENGTH characters without a dot filled it)
+  for(i = 0; i < len && i < (futils_MAX_NAME_LENGTH-1); i++, p++) {
     if(*p == '.') break;
     out_file[i] = *p;
   }
@@ -1400,7 +1422,7 @@ GXDLCODE_API long futils_filelength(const char *fname)
     // If the file is larger than 2.1 GB use the CreateFile() call.
     // NOTE: The CreateFile() call can be extremly slow in recursive
     // functions so the stat() call is used first.
-    HANDLE hFile = CreateFile(TEXT(fname), 
+    HANDLE hFile = CreateFileA(fname, 
 			      GENERIC_READ,
 			      FILE_SHARE_READ|FILE_SHARE_WRITE,
 			      NULL, // No security
@@ -1495,13 +1517,11 @@ GXDLCODE_API DIR *futils_opendir(const char *dirname)
   dirp = (DIR *)malloc(sizeof(DIR));
   if(dirp == NULL) return NULL;
 
-#ifdef __VS2026__
   // Position the directory stream to the first entry
-  dirp->dd_buf.d_ino = FindFirstFile(TEXT("*.*"), &dirp->dd_buf.file);
-#else
-  // Position the directory stream to the first entry
-  dirp->dd_buf.d_ino = FindFirstFile("*.*", &dirp->dd_buf.file);
-#endif
+  // 10/24/2026: Use the ANSI version of the find functions so the
+  // file names match the char based dirent structure in both ANSI
+  // and _UNICODE builds.
+  dirp->dd_buf.d_ino = FindFirstFileA("*.*", &dirp->dd_buf.file);
   
   if(dirp->dd_buf.d_ino == INVALID_HANDLE_VALUE) {
     free(dirp);
@@ -1509,18 +1529,10 @@ GXDLCODE_API DIR *futils_opendir(const char *dirname)
   }
   
   // Initialize the DIR variables
-#ifdef __VS2026__
-  strcpy(dirp->dd_buf.d_name, (const char *)dirp->dd_buf.file.cFileName);
-#else
   strcpy(dirp->dd_buf.d_name, dirp->dd_buf.file.cFileName);
-#endif
   
   dirp->dd_buf.d_reclen = dirp->dd_buf.file.nFileSizeLow;
-#ifdef __VS2026__
-  dirp->dd_buf.d_namlen = strlen((const char *)dirp->dd_buf.file.cFileName);
-#else
   dirp->dd_buf.d_namlen = strlen(dirp->dd_buf.file.cFileName);
-#endif
   
   dirp->dd_loc = 0;
   dirp->dd_fd = -1;
@@ -1566,20 +1578,11 @@ GXDLCODE_API struct dirent *futils_readdir(DIR *dirp, dirent *entry)
     return &dirp->dd_buf;
   }
 
-  if(FindNextFile(dirp->dd_buf.d_ino, &dirp->dd_buf.file)) {
+  if(FindNextFileA(dirp->dd_buf.d_ino, &dirp->dd_buf.file)) {
     dirp->dd_loc++;
-#ifdef __VS2026__
-    strcpy(dirp->dd_buf.d_name, (const char*)dirp->dd_buf.file.cFileName);
-#else
     strcpy(dirp->dd_buf.d_name, dirp->dd_buf.file.cFileName);
-#endif
     dirp->dd_buf.d_reclen = dirp->dd_buf.file.nFileSizeLow;
-
-#ifdef __VS2026__
-    dirp->dd_buf.d_namlen = strlen((const char *)dirp->dd_buf.file.cFileName);
-#else
-    strcpy(dirp->dd_buf.d_name, dirp->dd_buf.file.cFileName);
-#endif
+    dirp->dd_buf.d_namlen = strlen(dirp->dd_buf.file.cFileName);
 
     dirp->dd_fd = -1;
     dirp->dd_size = dirp->dd_buf.file.nFileSizeLow;
@@ -1640,34 +1643,24 @@ GXDLCODE_API void futils_rewinddir(DIR *dirp)
   if(!dirp) return; 
 
 #if defined (__WIN32__)
-  if(!dirp->dd_dirname) return;
+  if(!dirp->dd_dirname[0]) return;
 
   // Ensure that the directory still exists
   if(!futils_exists(dirp->dd_dirname)) return;
 
-#ifdef __VS2026__
   // Position the directory stream to the first entry
-  dirp->dd_buf.d_ino = FindFirstFile(TEXT("*.*"), &dirp->dd_buf.file);
-#else
-  // Position the directory stream to the first entry
-  dirp->dd_buf.d_ino = FindFirstFile("*.*", &dirp->dd_buf.file);
-#endif
+  // 10/24/2026: Use the ANSI version of the find functions so the
+  // file names match the char based dirent structure in both ANSI
+  // and _UNICODE builds.
+  dirp->dd_buf.d_ino = FindFirstFileA("*.*", &dirp->dd_buf.file);
   if(dirp->dd_buf.d_ino == INVALID_HANDLE_VALUE) return;
   
   // Reset the DIR varaibles
-#ifdef __VS2026__
-  strcpy(dirp->dd_buf.d_name, (const char *)dirp->dd_buf.file.cFileName);
-#else
   strcpy(dirp->dd_buf.d_name, dirp->dd_buf.file.cFileName);
-#endif
   
   dirp->dd_buf.d_reclen = dirp->dd_buf.file.nFileSizeLow;
 
-#ifdef __VS2026__
-  dirp->dd_buf.d_namlen = strlen((const char *)dirp->dd_buf.file.cFileName);
-#else
   dirp->dd_buf.d_namlen = strlen(dirp->dd_buf.file.cFileName);
-#endif
   
   dirp->dd_loc = 0;
   dirp->dd_fd = -1;
@@ -1688,7 +1681,8 @@ int futils_GetDiskSpace(char *partition, __ULLWORD__ &free_space,
 // of bytes available to a non-superuser
 {
 #if defined (__WIN32__)
-  typedef BOOL (WINAPI *P_GDFSE)(LPCTSTR, PULARGE_INTEGER, 
+  // 10/24/2026: Use the ANSI string type to match GetDiskFreeSpaceExA
+  typedef BOOL (WINAPI *P_GDFSE)(LPCSTR, PULARGE_INTEGER, 
 				 PULARGE_INTEGER, PULARGE_INTEGER);
   BOOL  fResult;
   P_GDFSE pGetDiskFreeSpaceEx = NULL;
@@ -1703,28 +1697,15 @@ int futils_GetDiskSpace(char *partition, __ULLWORD__ &free_space,
   // need to call LoadLibrary on KERNEL32.DLL because it is already loaded 
   // into every Win32 process's address space.
 
-#ifdef __VS2026__
-  pGetDiskFreeSpaceEx = (P_GDFSE)GetProcAddress(GetModuleHandle(TEXT("kernel32.dll")), "GetDiskFreeSpaceExA");
-#else
-  pGetDiskFreeSpaceEx = (P_GDFSE)GetProcAddress(GetModuleHandle("kernel32.dll"), "GetDiskFreeSpaceExA");
-#endif
+  pGetDiskFreeSpaceEx = (P_GDFSE)GetProcAddress(GetModuleHandleA("kernel32.dll"), "GetDiskFreeSpaceExA");
   
   if(pGetDiskFreeSpaceEx) {
     PULARGE_INTEGER avail_bytes = new ULARGE_INTEGER;
     PULARGE_INTEGER bytes_total = new ULARGE_INTEGER;
     PULARGE_INTEGER free_bytes  = new ULARGE_INTEGER;
 
-#ifdef __VS2026__
-    const char* narrowString = partition;
-    wchar_t wideBuffer[1024];
-    MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
-    
-    fResult = pGetDiskFreeSpaceEx(wideBuffer, avail_bytes, bytes_total, 
-				  free_bytes);
-#else
     fResult = pGetDiskFreeSpaceEx(partition, avail_bytes, bytes_total, 
 				  free_bytes);
-#endif
     
     if(fResult) {
       total_bytes = ((((__ULLWORD__)bytes_total->HighPart) << 32) | 
@@ -1746,11 +1727,7 @@ int futils_GetDiskSpace(char *partition, __ULLWORD__ &free_space,
   else { // Use the Windows 95A code
     unsigned long bytesPerSector, sectorsPerCluster;
     unsigned long freeClusters, totalClusters;
-#ifdef __VS2026__
-    const char* narrowString = partition;
-    wchar_t wideBuffer[1024];
-    MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
-    if(GetDiskFreeSpace(wideBuffer, &sectorsPerCluster, &bytesPerSector,
+    if(GetDiskFreeSpaceA(partition, &sectorsPerCluster, &bytesPerSector,
 			&freeClusters, &totalClusters)) {
       free_space = \
 	sectorsPerCluster * bytesPerSector * (__LLWORD__)freeClusters;
@@ -1761,19 +1738,6 @@ int futils_GetDiskSpace(char *partition, __ULLWORD__ &free_space,
     else {
       return -1;
     }
-#else
-    if(GetDiskFreeSpace(partition, &sectorsPerCluster, &bytesPerSector,
-			&freeClusters, &totalClusters)) {
-      free_space = \
-	sectorsPerCluster * bytesPerSector * (__LLWORD__)freeClusters;
-      total_bytes = \
-	sectorsPerCluster * bytesPerSector * (__LLWORD__)totalClusters;
-      bytes_used = total_bytes - free_space;
-    }
-    else {
-      return -1;
-    }
-#endif
   }
 
 #elif defined (__UNIX__) && defined (__LINUX__)

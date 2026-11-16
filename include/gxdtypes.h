@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/05/1997  
-// Date Last Modified: 10/30/2025
-// Copyright (c) 2001-2025 DataReel Software Development
+// Date Last Modified: 10/24/2026
+// Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -54,9 +54,9 @@ typedef double __DPFLOAT__; // (D)ouble (P)recision (F)loating point (8 bytes)
 // --------------------------------------------------------------
 // Platform/compiler specific INT64 types
 // --------------------------------------------------------------
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
-#include "gxdtyp64.h" 
-#endif
+// 10/31/2026: Always included, the positional I/O file type
+// (gxdfp64.h) is also used by the 32-bit engine on UNIX and MSVC
+#include "gxdtyp64.h"
 // --------------------------------------------------------------
 
 #endif // __GX_DATABASE__TYPES_HPP__

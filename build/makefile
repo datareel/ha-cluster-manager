@@ -103,7 +103,7 @@ clean:
 clean_lib:
 	rm -fv ../lib/libdatareel.a
 	rm -fv ../lib/libdatareel.so
-	rm -fv ../lib/libdatareel.so.5.0
+	rm -fv ../lib/libdatareel.so.6.4 ../lib/libdatareel.so.5.0
 # --------------------------------------------------------------- 
 #####################
 #### End of File ####

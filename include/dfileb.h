@@ -6,8 +6,8 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/30/2025
-// Copyright (c) 2001-2025 DataReel Software Development
+// Date Last Modified: 10/31/2026
+// Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -285,6 +285,7 @@ protected: // Internal processing functions
   void df_Copy(const DiskFileB &ob);
   void df_LoadNameBuffer(const char *s);
   void df_ClearNameBuffer();
+  void df_WriteFloat(double val); // 10/31/2026: Text output of floats
 
 protected: // Stream file handles
   gxdFPTR *df_fptr;  // Stream file handle used for all I/O operations  
@@ -310,7 +311,7 @@ protected: // Process control variables
 public: // Overloaded operators
   int operator!() const { return ((df_is_ok == 0) || (df_is_open == 0)); }
   int operator!() { return ((df_is_ok == 0) || (df_is_open == 0)); }
-  operator const int () const { 
+  operator int () const { 
     return ((df_is_ok == 1) && (df_is_open == 1)); 
   }
   operator int () { return ((df_is_ok == 1) && (df_is_open == 1)); }
