@@ -6,8 +6,8 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/30/2025
-// Copyright (c) 2001-2025 DataReel Software Development
+// Date Last Modified: 10/31/2026
+// Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -88,6 +88,24 @@ Still using old version under Solaris until new version is tested.
 
 12/19/2005: Added new error codes to the gxsSocketExceptionMessages
 array.
+
+10/31/2026: Close() sets the closed descriptors to -1, so a second
+Close() or the destructor no longer closes a descriptor number the
+program has opened again since. ReadSelect() uses poll() on UNIX:
+select() with a descriptor at or above FD_SETSIZE wrote past the end
+of the fd_set. Send() stops on a send() that returns 0 (it looped for
+ever) and, on Linux, sends with MSG_NOSIGNAL so a peer that closed the
+connection returns an error instead of killing the program with
+SIGPIPE. Added SetIOTimeout() to limit each blocking send and receive.
+
+10/31/2026: Host addresses are copied with gxsCopyHostAddress(), which
+checks the address type and length. "*((unsigned long *)h_addr)" read
+8 bytes from a 4-byte address on 64-bit UNIX. InitSIN() filled in the
+object's sin instead of host_sin (thread safe Linux build), and
+SetRemoteIPAddress() dereferenced a null pointer for an unknown host.
+GetIPAddress(), GetDomainName() and GetHostName() no longer leak or
+write past the gxsMAX_NAME_LEN buffer, and SocketExceptionMessage()
+checks for negative codes.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -95,7 +113,51 @@ array.
 
 #include<string.h>
 #include <fcntl.h>
+#include <limits.h>
 #include "gxsocket.h"
+
+#if defined (__UNIX__)
+#include <poll.h>  // 10/31/2026: ReadSelect()
+#include <errno.h>
+#endif
+
+// 10/31/2026: Flag added to every send() on a stream socket so a closed
+// peer gives EPIPE instead of SIGPIPE. Only Linux has MSG_NOSIGNAL.
+#if defined (__LINUX__) && defined (MSG_NOSIGNAL)
+const int gxsSEND_FLAGS = MSG_NOSIGNAL;
+#else
+const int gxsSEND_FLAGS = 0;
+#endif
+
+static int gxsCopyHostAddress(gxsInternetAddress &ia, 
+			      const gxsHostNameInfo *hostnm)
+// 10/31/2026: Copy the first IPv4 address of a host name lookup.
+// Returns -1 if there is none. The address used to be read with
+// "*((unsigned long *)hostnm->h_addr)", which reads 8 bytes from the
+// 4-byte address on 64-bit UNIX systems.
+{
+  if(!hostnm) return -1;
+  if(hostnm->h_addrtype != AF_INET) return -1;
+  if(hostnm->h_length != (int)sizeof(ia.s_addr)) return -1;
+  if(!hostnm->h_addr_list || !hostnm->h_addr_list[0]) return -1;
+  memcpy(&ia.s_addr, hostnm->h_addr_list[0], sizeof(ia.s_addr));
+  return 0;
+}
+
+#if defined (__LINUX__) && defined (__REENTRANT__)
+static int gxsCopyAddrInfo(gxsInternetAddress &ia, const struct addrinfo *res)
+// 10/31/2026: Copy the first IPv4 address of a getaddrinfo() result.
+// Returns -1 if there is none.
+{
+  for(; res; res = res->ai_next) {
+    if(res->ai_family != AF_INET || !res->ai_addr) continue;
+    if(res->ai_addrlen < (socklen_t)sizeof(struct sockaddr_in)) continue;
+    ia.s_addr = ((const struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
+    return 0;
+  }
+  return -1;
+}
+#endif
 
 #if defined(__UNIX__) && !defined(__BSD_UNIX__)  
 #include <sys/utsname.h> // Used for host name information
@@ -278,9 +340,10 @@ gxsSocket_t gxSocket::Socket()
 {
   gxsocket = socket(address_family, socket_type, protocol_family);
 #if defined (__UNIX__) && defined (FD_CLOEXEC)
-  // Do not leak sockets into child processes. A resource script or
-  // application started by the server would otherwise hold the
-  // listening port open, and a restarted server could not bind it.
+  // DRCM local change (carried from the DataReel 5.10 copy): do not leak
+  // sockets into child processes. A resource script or application
+  // started by the server would otherwise hold the listening port open,
+  // and a restarted server could not bind it.
   if(gxsocket >= 0) fcntl(gxsocket, F_SETFD, FD_CLOEXEC);
 #endif
 
@@ -348,8 +411,13 @@ gxsSocket_t gxSocket::InitSocket(gxsAddressFamily af,
       socket_error = gxSOCKET_HOSTNAME_ERROR;
       return -1;
     }
-    sin.sin_addr.s_addr = ((struct sockaddr_in *)(res->ai_addr))->sin_addr.s_addr; 
+    // 10/31/2026: Only an IPv4 result fits in sin
+    int rv = gxsCopyAddrInfo(sin.sin_addr, res);
     freeaddrinfo(res);
+    if(rv != 0) {
+      socket_error = gxSOCKET_HOSTNAME_ERROR;
+      return -1;
+    }
 #else
     // Get the server's Internet address
     gxsHostNameInfo *hostnm = gethostbyname(hostname); 
@@ -359,11 +427,11 @@ gxsSocket_t gxSocket::InitSocket(gxsAddressFamily af,
     }
     // Put the server information into the client structure.
     // 08/24/2016: Prevent core dump if not set
-    if(!hostnm->h_addr) {
+    // 10/31/2026: Copy 4 bytes, see gxsCopyHostAddress()
+    if(gxsCopyHostAddress(sin.sin_addr, hostnm) != 0) {
        socket_error = gxSOCKET_HOSTNAME_ERROR;
        return -1;
     }
-    sin.sin_addr.s_addr = *((unsigned long *)hostnm->h_addr);
 #endif
   }
   else {   
@@ -463,7 +531,7 @@ int gxSocket::InitSIN(gxsSocketAddress *host_sin, gxsAddressFamily af,
     // 08/28/2016: Added thread safe code to replace gethostbyname() call
     struct addrinfo hints, *res;
     memset (&hints, 0, sizeof (hints));
-    hints.ai_family = af;
+    hints.ai_family = AF_INET; // 10/31/2026: host_sin holds IPv4 only
     hints.ai_socktype = 0;
     hints.ai_protocol = 0;
     hints.ai_flags |= AI_PASSIVE; // return socket addresses for use with connect(),sendto(), or sendmsg()
@@ -475,8 +543,14 @@ int gxSocket::InitSIN(gxsSocketAddress *host_sin, gxsAddressFamily af,
       socket_error = gxSOCKET_HOSTNAME_ERROR;
       return -1;
     }
-    sin.sin_addr.s_addr = ((struct sockaddr_in *)(res->ai_addr))->sin_addr.s_addr; 
+    // 10/31/2026: Fill in host_sin. This set the object's sin and left
+    // host_sin with a zero (any) address.
+    int rv = gxsCopyAddrInfo(host_sin->sin_addr, res);
     freeaddrinfo(res);
+    if(rv != 0) {
+      socket_error = gxSOCKET_HOSTNAME_ERROR;
+      return -1;
+    }
 #else
     // Get the Internet address
     gxsHostNameInfo *hostnm = gethostbyname(hostname); 
@@ -485,7 +559,11 @@ int gxSocket::InitSIN(gxsSocketAddress *host_sin, gxsAddressFamily af,
       return -1;
     }
     // Put the server information into the client structure.
-    host_sin->sin_addr.s_addr = *((unsigned long *)hostnm->h_addr);
+    // 10/31/2026: Copy 4 bytes, see gxsCopyHostAddress()
+    if(gxsCopyHostAddress(host_sin->sin_addr, hostnm) != 0) {
+      socket_error = gxSOCKET_HOSTNAME_ERROR;
+      return -1;
+    }
 #endif
   }
   else {  
@@ -589,10 +667,37 @@ int gxSocket::ReadSelect(gxsSocket_t s, int seconds, int useconds)
 // Function used to multiplex reads without polling. Returns false if a 
 // reply time is longer then the timeout values. 
 {
-#ifndef __SOLARIS__
+#if defined (__UNIX__)
+  // 10/31/2026: poll() in place of select(). FD_SET() with a descriptor
+  // at or above FD_SETSIZE (1024 on Linux) wrote past the end of the
+  // fd_set on the stack, and a server with many open files or
+  // connections gets such descriptors. A negative timeout waits with
+  // no limit. Returns 1 if the socket can be read (or has an error or
+  // hang up to report), 0 on a timeout, -1 if poll() fails.
+  if(s < 0) return 0; // CWS - socket was disconnected?
+  long long ms;
+  if(seconds < 0 || useconds < 0) {
+    ms = -1;
+  }
+  else {
+    ms = (long long)seconds * 1000 + (useconds + 999) / 1000;
+    if(ms > INT_MAX) ms = INT_MAX;
+  }
+  struct pollfd pfd;
+  pfd.fd = s;
+  pfd.events = POLLIN;
+  pfd.revents = 0;
+  int rv;
+  do {
+    rv = poll(&pfd, 1, (int)ms);
+  } while(rv < 0 && errno == EINTR);
+  if(rv > 0) return 1;
+  return rv;
+#else
   struct timeval timeout;
   fd_set fds;
   FD_ZERO(&fds);
+  if(s < 0) return 0;	//CWS - socket was disconnected?
   FD_SET(s, &fds);
   
   timeout.tv_sec = seconds;
@@ -601,33 +706,8 @@ int gxSocket::ReadSelect(gxsSocket_t s, int seconds, int useconds)
   // This function calls select() giving it the file descriptor of
   // the socket. The kernel reports back to this function when the file
   // descriptor has woken it up.
-  //CWS  return select(s+1, &fds, 0, 0, &timeout);
-  if(s < 0) return 0;	//CWS - socket was disconnected?
   return select(s+1, &fds, 0, 0, &timeout);
-
-#else 
-  // As submitted by DataReel user the Solaris select() function 
-  // may not always be reliable. This fix was added but not tested. 
-  // If any Solaris users test the below code please email the 
-  // DataReel Software Development team.  
-
-  // pollfd read_fds[1];
-  // read_fds[0].fd = s;
-  // read_fds[0].events = POLLIN | POLLERR | POLLHUP;
-  // read_fds[0].revents = 0;
-  // return poll(read_fds, 1, (seconds!=-1)?seconds*1000:-1);
-
-  // Use old code until above version is full under Solaris.
-  struct timeval timeout;
-  fd_set fds;
-  FD_ZERO(&fds);
-  FD_SET(s, &fds);
-  timeout.tv_sec = seconds;
-  timeout.tv_usec = useconds;
-  if(s < 0) return 0;
-  return select(s+1, &fds, 0, 0, &timeout);
-
-#endif // __SOLARIS__
+#endif
 }
 
 int gxSocket::Recv(void *buf, int bytes, int flags)
@@ -730,11 +810,15 @@ int gxSocket::Send(gxsSocket_t s, const void *buf, int bytes, int flags)
   char *p = (char *)buf; // Pointer to the buffer
 
   while(bytes_moved < bytes) { // Loop until the buffer is empty
-    if((num_moved = send(s, p, num_req-bytes_moved, flags)) > 0) {
+    // 10/31/2026: MSG_NOSIGNAL on Linux, see gxsSEND_FLAGS
+    if((num_moved = send(s, p, num_req-bytes_moved, 
+			 flags | gxsSEND_FLAGS)) > 0) {
       bytes_moved += num_moved;  // Increment the byte counter
       p += num_moved;            // Move the buffer pointer for the next read
     }
-    if(num_moved < 0) {
+    // 10/31/2026: A send() that moves no bytes is an error. It used
+    // to loop here for ever.
+    if(num_moved <= 0) {
       socket_error = gxSOCKET_TRANSMIT_ERROR;
       return -1; // An error occurred during the read
     }
@@ -836,6 +920,12 @@ void gxSocket::Close()
 #else
 #error You must define a target platform: __WIN32__ or __UNIX__
 #endif
+  // 10/31/2026: Forget the closed descriptors. A second Close(), or the
+  // destructor after Close(), closed the same numbers again, and by
+  // then they could belong to files or sockets the program had opened
+  // since.
+  gxsocket = -1;
+  remote_socket = -1;
 }
 
 void gxSocket::Close(gxsSocket_t &s)
@@ -910,7 +1000,7 @@ gxsSocket_t gxSocket::Accept(gxsSocket_t s, gxsSocketAddress *sa)
 
   gxsSocket_t client_socket = accept(s, (struct sockaddr *)sa, &addr_size);
 #if defined (__UNIX__) && defined (FD_CLOEXEC)
-  // Close on exec, see Socket()
+  // DRCM local change: close on exec, see Socket()
   if(client_socket >= 0) fcntl(client_socket, F_SETFD, FD_CLOEXEC);
 #endif
 
@@ -943,7 +1033,7 @@ gxsSocket_t gxSocket::Accept()
 
   remote_socket = accept(gxsocket, (struct sockaddr *)&remote_sin, &addr_size);
 #if defined (__UNIX__) && defined (FD_CLOEXEC)
-  // Close on exec, see Socket()
+  // DRCM local change: close on exec, see Socket()
   if(remote_socket >= 0) fcntl(remote_socket, F_SETFD, FD_CLOEXEC);
 #endif
 
@@ -1050,6 +1140,36 @@ int gxSocket::SetSockOpt(int level, int optName, const void *optVal,
 // Returns -1 if an error occurs.
 {
   return SetSockOpt(gxsocket, level, optName, optVal, optLen);
+}
+
+int gxSocket::SetIOTimeout(gxsSocket_t s, int seconds)
+// 10/31/2026: Limit each blocking send and receive on the specified
+// socket to seconds (SO_RCVTIMEO and SO_SNDTIMEO). A receive or send
+// that times out fails with an error. 0 or less removes the limit.
+// Returns -1 if an error occurs.
+{
+  if(seconds < 0) seconds = 0;
+#if defined (__WIN32__)
+  DWORD ms = (DWORD)seconds * 1000;
+  if(SetSockOpt(s, SOL_SOCKET, SO_RCVTIMEO, &ms, sizeof(ms)) < 0) return -1;
+  return SetSockOpt(s, SOL_SOCKET, SO_SNDTIMEO, &ms, sizeof(ms));
+#else
+  struct timeval tv;
+  tv.tv_sec = seconds;
+  tv.tv_usec = 0;
+  if(SetSockOpt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) return -1;
+  return SetSockOpt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+}
+
+int gxSocket::SetIOTimeout(int seconds)
+// 10/31/2026: SetIOTimeout() for the bound socket and, if one is
+// open, the remote socket. Returns -1 if an error occurs.
+{
+  int rv = 0;
+  if(gxsocket != -1 && SetIOTimeout(gxsocket, seconds) < 0) rv = -1;
+  if(remote_socket != -1 && SetIOTimeout(remote_socket, seconds) < 0) rv = -1;
+  return rv;
 }
 
 gxsServent *gxSocket::GetServiceInformation(char *name, char *protocol)
@@ -1198,19 +1318,19 @@ int gxSocket::GetHostName(char *sbuf)
 // A memory buffer equal to "gxsMAX_NAME_LEN" must be pre-allocated
 // prior to using this function. Return -1 if an error occurs.
 {
-  // Prevent crashes if memory has not been allocated
-  int hasbuf = 1;
+  // 10/31/2026: A null buffer is an error. It used to allocate a local
+  // buffer the caller never received, which leaked.
   if(!sbuf) {
-    sbuf = new char[gxsMAX_NAME_LEN]; 
-    hasbuf = 0;
+    socket_error = gxSOCKET_HOSTNAME_ERROR;
+    return -1;
   }
   int rv = gethostname(sbuf, gxsMAX_NAME_LEN);
   if(rv < 0) { 
-    // PC-lint 09/12/2005: Possible memory leak if the caller passed
-    // a null sbuf to this function
-    if(!hasbuf) delete[] sbuf;
     socket_error = gxSOCKET_HOSTNAME_ERROR;
   }
+  // 10/31/2026: gethostname() does not always end a name it had to
+  // cut with a null
+  sbuf[gxsMAX_NAME_LEN-1] = 0;
   return rv;
 }
 
@@ -1219,24 +1339,29 @@ int gxSocket::GetIPAddress(char *sbuf)
 // A memory buffer equal to "gxsMAX_NAME_LEN" must be pre-allocated
 // prior to using this function. Return -1 if an error occurs.
 {
+  // 10/14/2026: A null buffer is an error. It used to allocate a local
+  // buffer the caller never received, which leaked.
+  // 10/31/2026: Checked first; the host information leaked
+  if(!sbuf) return -1;
+
   char hostname[gxsMAX_NAME_LEN];
   int rv = GetHostName(hostname);
   if(rv < 0) return rv;
 
-  gxsInternetAddress *ialist;
   gxsHostNameInfo *hostinfo = GetHostInformation(hostname);
   if(!hostinfo) {
     socket_error = gxSOCKET_HOSTNAME_ERROR;
     return -1;
   }
-  ialist = (gxsInternetAddress *)hostinfo->h_addr_list[0];
-
-  // 10/14/2026: A null buffer is an error. It used to allocate a local
-  // buffer the caller never received, which leaked.
-  if(!sbuf) return -1;
-
-  strcpy(sbuf, inet_ntoa(*ialist));
+  // 10/31/2026: Check the address type, length and list before use
+  gxsInternetAddress ia;
+  rv = gxsCopyHostAddress(ia, hostinfo);
   delete hostinfo;
+  if(rv != 0) {
+    socket_error = gxSOCKET_HOSTNAME_ERROR;
+    return -1;
+  }
+  strcpy(sbuf, inet_ntoa(ia)); // At most 15 characters
   return 0;
 }
 
@@ -1245,6 +1370,11 @@ int gxSocket::GetDomainName(char *sbuf)
 // A memory buffer equal to "gxsMAX_NAME_LEN" must be pre-allocated
 // prior to using this function. Return -1 if an error occurs.
 {
+  // 10/14/2026: A null buffer is an error. It used to allocate a local
+  // buffer the caller never received, which leaked.
+  // 10/31/2026: Checked first; the host information leaked
+  if(!sbuf) return -1;
+
   char hostname[gxsMAX_NAME_LEN];
   int rv = GetHostName(hostname);
   if(rv < 0) return rv;
@@ -1254,11 +1384,14 @@ int gxSocket::GetDomainName(char *sbuf)
     socket_error = gxSOCKET_HOSTNAME_ERROR;
     return -1;
   }
-  // 10/14/2026: A null buffer is an error. It used to allocate a local
-  // buffer the caller never received, which leaked.
-  if(!sbuf) return -1;
 
-  strcpy(sbuf, hostinfo->h_name);
+  // 10/31/2026: The buffer holds gxsMAX_NAME_LEN bytes and a DNS name
+  // can be longer; strcpy() wrote past its end
+  sbuf[0] = 0;
+  if(hostinfo->h_name) {
+    strncpy(sbuf, hostinfo->h_name, (gxsMAX_NAME_LEN-1));
+    sbuf[gxsMAX_NAME_LEN-1] = 0;
+  }
   int i; int len = strlen(sbuf);
   for(i = 0; i < len; i++) {
     if(sbuf[i] == '.') break;
@@ -1363,7 +1496,8 @@ int gxSocket::RawWrite(gxsSocket_t s, const void *buf, int bytes,
 // error occurs.
 {
   bytes_moved = 0;
-  bytes_moved = send(s, (char *)buf, bytes, flags);
+  // 10/31/2026: MSG_NOSIGNAL on Linux, see gxsSEND_FLAGS
+  bytes_moved = send(s, (char *)buf, bytes, flags | gxsSEND_FLAGS);
   if(bytes_moved < 0) socket_error = gxSOCKET_TRANSMIT_ERROR;
   return bytes_moved;
 }
@@ -1388,7 +1522,9 @@ const char *gxSocket::SocketExceptionMessage()
 // Returns a null terminated string that can
 // be used to log or print a socket exception.
 {
-  if((int)socket_error > (gxsMaxSocketExceptionMessages-1))
+  // 10/31/2026: Negative codes read before the start of the array
+  if(((int)socket_error > (gxsMaxSocketExceptionMessages-1)) ||
+     ((int)socket_error < 0))
     socket_error = gxSOCKET_INVALID_ERROR_CODE;
   
   // Find the corresponding message in the exception array
@@ -1508,7 +1644,9 @@ int gxSocket::SendTo(gxsSocket_t s, gxsSocketAddress *sa,
       bytes_moved += num_moved;  // Increment the byte counter
       p += num_moved;            // Move the buffer pointer for the next read
     }
-    if(num_moved < 0) {
+    // 10/31/2026: A sendto() that moves no bytes is an error. It used
+    // to loop here for ever.
+    if(num_moved <= 0) {
       socket_error = gxSOCKET_TRANSMIT_ERROR;
       return -1; // An error occurred during the read
     }
@@ -1841,8 +1979,17 @@ void gxSocket::SetRemotePortNumber(gxsPort_t p)
 
 void gxSocket::SetRemoteIPAddress(char *IPAddress)
 {
+  // 10/31/2026: An unknown host (null hostnm) or null IPAddress crashed,
+  // and the address was read as 8 bytes. The address is left as it was
+  // and socket_error is set if the lookup fails.
+  if(!IPAddress) {
+    socket_error = gxSOCKET_HOSTNAME_ERROR;
+    return;
+  }
   gxsHostNameInfo *hostnm = gethostbyname(IPAddress);
-  remote_sin.sin_addr.s_addr = *((unsigned long *)hostnm->h_addr); 
+  if(gxsCopyHostAddress(remote_sin.sin_addr, hostnm) != 0) {
+    socket_error = gxSOCKET_HOSTNAME_ERROR;
+  }
 }
 
 #ifdef __BCC32__

@@ -5,6 +5,27 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+### Changed
+- The DataReel library files in include/ and src/ are from DataReel 6.4
+  beta 1 (datareel tag 6.4-beta1), copied with build/sync_datareel.sh;
+  they were DataReel 5.09/5.10. The local change to src/gxsocket.cpp
+  (sockets are close-on-exec, so resource scripts and applications do not
+  inherit the listening port) is carried forward. SHAREDLIB_VERSION 6.4.
+  No change in behaviour or wire format; 1.46 nodes work together.
+
+### Added
+- test_apps/standby_test/soak.sh: repeated standby/unstandby failover
+  cycles for a given time (default 10 minutes), no overlap allowed.
+- test_apps/standby_test/vg_session.sh: one node under valgrind for a
+  short session.
+
+### Tested (11/15/2026, RHEL 10.2, gcc 14.4.1)
+- standby_test: 89 of 89 with this build, the same as with the DataReel
+  5.10 build (1.42 and 1.44 servers in the mixed version tests); 89 of 89
+  with an ASan+UBSan build and no sanitizer reports.
+- soak.sh with the ASan build: 18 failover cycles in 10 minutes, 83 of 83,
+  no overlap. vg_session.sh: valgrind 0 errors.
+
 ## [1.46] - 2026-10-29
 
 There is no 1.45. 1.46 works with 1.43 and 1.44 nodes; only the node
