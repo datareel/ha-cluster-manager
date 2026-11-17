@@ -69,6 +69,13 @@ command runs on). 1.47 works with 1.43 to 1.46 nodes otherwise.
   could be reported as "not canceled".
 
 
+### Tested (11/17/2026, RHEL 10.2, gcc 14.4.1)
+- standby_test with 1.42, 1.44 and 1.46 servers for the mixed version
+  and refusal tests: UDP 124 of 124, TCP + TLS 126 of 126. The same
+  with an ASan+UBSan build: 124 of 124 and 126 of 126, no sanitizer
+  reports.
+- `--check-config` on both example configs.
+
 ## [1.46] - 2026-10-29
 
 There is no 1.45. 1.46 works with 1.43 and 1.44 nodes; only the node
