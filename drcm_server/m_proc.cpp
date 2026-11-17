@@ -51,6 +51,9 @@ void *ProcessThread::ThreadEntryRoutine(gxThread_t *thread)
     // Block this thread from its own execution 
     servercfg->process_cond.ConditionWait(&servercfg->process_lock);
   }
+  // Release the lock before sleeping so StopProc(), which takes it to
+  // wake this thread, does not wait for the sleep.
+  servercfg->process_lock.MutexUnlock();
   sSleep(1); // Allow for I/O recovery time before exiting the program
   return (void *)0;
 }
@@ -352,6 +355,21 @@ int StopThreads()
   return error_level;
 }
 
+void WakeProcessThread(int kill_server)
+// Tell the process thread to leave its wait loop. The flags are set and
+// the condition signaled while holding process_lock: setting them
+// without the lock could land between the thread's test of
+// process_loop and its ConditionWait(), and the signal was then lost
+// (the thread kept waiting until the forced exit 30 seconds later).
+// Callers used to unlock process_lock without holding it.
+{
+  int has_lock = (servercfg->process_lock.MutexLock() == 0);
+  if(kill_server) servercfg->kill_server = 1;
+  servercfg->process_loop = 0;
+  servercfg->process_cond.ConditionSignal();
+  if(has_lock) servercfg->process_lock.MutexUnlock();
+}
+
 int StopProc() 
 {
   if(servercfg->debug && servercfg->log_level == 0) servercfg->log_level = 1;
@@ -361,10 +379,7 @@ int StopProc()
   while(StopThreads() != 0 && retries--) sleep(1);
  
   // Signal the process thread to exit
-  servercfg->kill_server = 1;
-  servercfg->process_loop = 0;
-  servercfg->process_cond.ConditionSignal(); 
-  servercfg->process_lock.MutexUnlock();
+  WakeProcessThread(1);
 
   NT_print("Sending termination signal to end process");
   sSleep(1);

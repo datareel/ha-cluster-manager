@@ -860,11 +860,7 @@ int load_hash_key()
 void ConsoleThread::ThreadExitRoutine(gxThread_t *thread)
 {
   cout << "\n" << "Exiting interactive console" << "\n" << flush;
-  servercfg->process_loop = 0;
-  if(servercfg->process_lock.IsLocked()) {
-    servercfg->process_cond.ConditionSignal(); 
-    servercfg->process_lock.MutexUnlock();
-  }
+  WakeProcessThread(0);
 }
 
 void *ConsoleThread::ThreadEntryRoutine(gxThread_t *thread)

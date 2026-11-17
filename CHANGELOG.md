@@ -7,7 +7,7 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ### Changed
 - The bundled DataReel library files are synced from DataReel 6.4.1
-  (branch `6.4.1`, d2e4c03). They were from before DataReel 6.1. This
+  (branch `6.4.1`, 6241e3a). They were from before DataReel 6.1. This
   brings in the 6.1 to 6.4 fixes for the files DRCM uses: socket, file,
   string, log file, thread, mutex, thread pool and time code.
   `build/sync_datareel.sh` can be re-run against later 6.4.x trees.
@@ -20,6 +20,17 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   destructor). If another thread opened a socket or file between the
   two closes, the second close() closed it. DataReel's `Close()` now
   sets the descriptors to -1 (DataReel 6.3.1).
+- Shutdown could stall for 30 seconds before the forced exit. The
+  process thread's wake-up was sent without holding its mutex, so it
+  could be lost between the thread's check and its wait. `StopProc()`
+  and the console exit also unlocked a mutex they did not hold.
+- Timed waits (`sSleep()`, the standby and shutdown waits) ran on the
+  system clock, so setting the time back made them last that much
+  longer. They now use the monotonic clock (DataReel 6.4.1).
+- DataReel 6.4.1 sets a thread's state to running before it starts.
+  A shutdown right after startup could take a starting thread for one
+  that had stopped and free it while it ran, and a canceled thread
+  could be reported as "not canceled".
 
 ## [1.46] - 2026-10-29
 

@@ -67,6 +67,7 @@ int StartSignalThread();
 
 // Main process functions
 int StopThreads();
+void WakeProcessThread(int kill_server);
 int StopProc();
 void ExitProc(int return_code);
 // Quote a string for use as a single shell word
