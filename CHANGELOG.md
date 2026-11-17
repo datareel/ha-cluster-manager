@@ -6,12 +6,13 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 ## [Unreleased]
 
 ### Changed
-- The DataReel library files in include/ and src/ are from DataReel 6.4
-  beta 1 (datareel tag 6.4-beta1), copied with build/sync_datareel.sh;
-  they were DataReel 5.09/5.10. The local change to src/gxsocket.cpp
-  (sockets are close-on-exec, so resource scripts and applications do not
-  inherit the listening port) is carried forward. SHAREDLIB_VERSION 6.4.
-  No change in behaviour or wire format; 1.46 nodes work together.
+- The bundled DataReel library files are synced from DataReel 6.4.1
+  (branch `6.4.1`, 6241e3a). They were from before DataReel 6.1. This
+  brings in the 6.1 to 6.4 fixes for the files DRCM uses: socket, file,
+  string, log file, thread, mutex, thread pool and time code.
+  `build/sync_datareel.sh` can be re-run against later 6.4.x trees.
+  DataReel 6.4.1 also has DRCM's FD_CLOEXEC change in gxsocket.cpp, so
+  a sync no longer removes it.
 
 ### Added
 - test_apps/standby_test/soak.sh: repeated standby/unstandby failover
@@ -19,12 +20,23 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 - test_apps/standby_test/vg_session.sh: one node under valgrind for a
   short session.
 
-### Tested (11/15/2026, RHEL 10.2, gcc 14.4.1)
-- standby_test: 89 of 89 with this build, the same as with the DataReel
-  5.10 build (1.42 and 1.44 servers in the mixed version tests); 89 of 89
-  with an ASan+UBSan build and no sanitizer reports.
-- soak.sh with the ASan build: 18 failover cycles in 10 minutes, 83 of 83,
-  no overlap. vg_session.sh: valgrind 0 errors.
+### Fixed
+- With `cluster_transport = tcp`, every keep alive and client command
+  closed its socket twice (`sock.Close()` and then the gxSocket
+  destructor). If another thread opened a socket or file between the
+  two closes, the second close() closed it. DataReel's `Close()` now
+  sets the descriptors to -1 (DataReel 6.3.1).
+- Shutdown could stall for 30 seconds before the forced exit. The
+  process thread's wake-up was sent without holding its mutex, so it
+  could be lost between the thread's check and its wait. `StopProc()`
+  and the console exit also unlocked a mutex they did not hold.
+- Timed waits (`sSleep()`, the standby and shutdown waits) ran on the
+  system clock, so setting the time back made them last that much
+  longer. They now use the monotonic clock (DataReel 6.4.1).
+- DataReel 6.4.1 sets a thread's state to running before it starts.
+  A shutdown right after startup could take a starting thread for one
+  that had stopped and free it while it ran, and a canceled thread
+  could be reported as "not canceled".
 
 ## [1.46] - 2026-10-29
 

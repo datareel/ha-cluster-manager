@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/31/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -106,6 +106,12 @@ SetRemoteIPAddress() dereferenced a null pointer for an unknown host.
 GetIPAddress(), GetDomainName() and GetHostName() no longer leak or
 write past the gxsMAX_NAME_LEN buffer, and SocketExceptionMessage()
 checks for negative codes.
+
+11/17/2026 (6.4.1): Socket() and both Accept() calls set FD_CLOEXEC,
+so programs the process runs (fork and exec) do not get its sockets.
+A child that kept a server's listening socket held the port open and
+a restarted server could not bind it (found in DRCM, which runs
+resource scripts from a threaded server).
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -340,10 +346,10 @@ gxsSocket_t gxSocket::Socket()
 {
   gxsocket = socket(address_family, socket_type, protocol_family);
 #if defined (__UNIX__) && defined (FD_CLOEXEC)
-  // DRCM local change (carried from the DataReel 5.10 copy): do not leak
-  // sockets into child processes. A resource script or application
-  // started by the server would otherwise hold the listening port open,
-  // and a restarted server could not bind it.
+  // 11/17/2026 (6.4.1): Close on exec. A program that forks and runs
+  // other programs (DRCM resource scripts, for example) would otherwise
+  // pass them the socket, and a child still holding a listening port
+  // stops a restarted server from binding it. From DRCM 1.46.
   if(gxsocket >= 0) fcntl(gxsocket, F_SETFD, FD_CLOEXEC);
 #endif
 
@@ -520,6 +526,7 @@ int gxSocket::InitSIN(gxsSocketAddress *host_sin, gxsAddressFamily af,
 // structure. To use the Internet address of this host pass a null 
 // pointer to hostname variable. Returns -1 if an error occurs.
 {
+  (void)af; // 11/16/2026 (6.4 beta 2): the object's address_family is used
   // Reset the current SIN
   memset(host_sin, 0, sizeof(gxsSocketAddress));
 
@@ -1000,7 +1007,7 @@ gxsSocket_t gxSocket::Accept(gxsSocket_t s, gxsSocketAddress *sa)
 
   gxsSocket_t client_socket = accept(s, (struct sockaddr *)sa, &addr_size);
 #if defined (__UNIX__) && defined (FD_CLOEXEC)
-  // DRCM local change: close on exec, see Socket()
+  // 11/17/2026 (6.4.1): Close on exec, see Socket()
   if(client_socket >= 0) fcntl(client_socket, F_SETFD, FD_CLOEXEC);
 #endif
 
@@ -1033,7 +1040,7 @@ gxsSocket_t gxSocket::Accept()
 
   remote_socket = accept(gxsocket, (struct sockaddr *)&remote_sin, &addr_size);
 #if defined (__UNIX__) && defined (FD_CLOEXEC)
-  // DRCM local change: close on exec, see Socket()
+  // 11/17/2026 (6.4.1): Close on exec, see Socket()
   if(remote_socket >= 0) fcntl(remote_socket, F_SETFD, FD_CLOEXEC);
 #endif
 
