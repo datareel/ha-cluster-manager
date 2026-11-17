@@ -276,7 +276,9 @@ fi
 
 if [ -x run/drcm_server.old ]; then
     echo "== 7. Mixed versions, n2 runs the old drcm_server"
-    stop_drcm n2; start_drcm n2 old
+    stop_drcm n2
+    n2_old_from=$(( $(wc -l < run/n2/log/drcm.log) + 1 ))  # n2 log lines from the old binary on
+    start_drcm n2 old
     check "app2 back on old n2" wait_for 90 test -f shared/state/app.app2.n2
     mark mixed1
     check "standby is refused when only an old peer backs up n1" not client n1 --command=standby
@@ -285,7 +287,7 @@ if [ -x run/drcm_server.old ]; then
     sleep 30
     check "old n2 did not take over (no split brain)" none_on n2
     check "n1 runs none of its resources" none_on n1
-    check "old n2 still sees n1 alive" bash -c "! grep -q 'n1 is dead' run/n2/log/drcm.log"
+    check "old n2 still sees n1 alive" bash -c "! tail -n +$n2_old_from run/n2/log/drcm.log | grep -q 'n1 is dead'"
     check "unstandby with an old peer" client n1 --command=unstandby
     check "n1 runs its resources again" all_on n1
     check "no overlap in the mixed test" ./analyze.py $EV mixed1
