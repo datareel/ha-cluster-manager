@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 10/30/2025
-// Copyright (c) 2001-2025 DataReel Software Development
+// Date Last Modified: 10/31/2026
+// Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -264,8 +264,10 @@ void *gxThreadAPIWrapper::apiThreadStartRoutine(void *arg)
     thread->thread_state = gxTHREAD_STATE_RUNNING;
 
 #if defined (__WIN32__)
+    // 10/24/2026: Cast through size_t to avoid a pointer truncation
+    // error on 64-bit Windows, where DWORD is 32 bits.
     thread->thread_exit_code = \
-      (gxThreadExitCode)thread->entry->ThreadEntryRoutine(thread);
+      (gxThreadExitCode)(size_t)thread->entry->ThreadEntryRoutine(thread);
     
 #elif defined (__POSIX__)
     // Install the thread's cleanup handler for threads that
@@ -342,6 +344,12 @@ int gxThreadAPIWrapper::apiCreateThread(gxThread_t *thread)
 // must be used to change a thread priority after it has been
 // created.
 {
+  // 10/31/2026: Clear a create error left by an earlier failed call, so
+  // a thread created on a retry can be joined (see apiJoinThread())
+  if(thread->thread_error == gxTHREAD_CREATE_ERROR) {
+    thread->thread_error = gxTHREAD_NO_ERROR;
+  }
+
   // Initialize the thread attributes
   int rv = apiInitThreadAttribute(&thread->thread_attribute);
   if(rv != 0) {
@@ -512,6 +520,8 @@ int gxThreadAPIWrapper::apiCreateThread(gxThread_t *thread)
 		      (void *)(thread));
   if(rv != 0) {
     thread->thread_error = gxTHREAD_CREATE_ERROR;
+    // 10/31/2026: Release the attribute (it leaked)
+    apiDestroyThreadAttribute(&thread->thread_attribute);
     return rv; // Could not create the thread
   }
 
@@ -542,6 +552,16 @@ int gxThreadAPIWrapper::apiJoinThread(gxThread_t *thread)
     // Cannot join detached threads. The system will reclaim the thread
     // resources when a detached thread terminates and no exit status will
     // be available.  
+    return 1;
+  }
+
+  // 10/31/2026: A thread that could not be created has no thread ID to
+  // wait for. Its ID was passed to pthread_join(), which is undefined
+  // (glibc leaves the descriptor of the failed thread there, and an ID
+  // of 0 crashes). gxThread::CreateThreadPool() and JoinThread(pool)
+  // did this when the system could not create more threads.
+  if((thread->thread_state == gxTHREAD_STATE_NEW) &&
+     (thread->thread_error == gxTHREAD_CREATE_ERROR)) {
     return 1;
   }
 
@@ -760,6 +780,13 @@ int gxThreadAPIWrapper::apiCancelThread(gxThread_t *thread)
     return 1;
   }
   
+  // 10/31/2026: A thread that could not be created has no thread ID to
+  // cancel (see apiJoinThread())
+  if((thread->thread_state == gxTHREAD_STATE_NEW) &&
+     (thread->thread_error == gxTHREAD_CREATE_ERROR)) {
+    return 1;
+  }
+
   // Get the previous state incase the thread cannot be canceled
   gxThreadState prev_state = thread->thread_state;
 
@@ -794,6 +821,24 @@ int gxThreadAPIWrapper::apiCancelThread(gxThread_t *thread)
   return 0; // No errors were reported
 }
 
+int gxThreadAPIWrapper::apiStopThread(gxThread_t *thread)
+// 10/24/2026: Cancel a joinable thread and, under POSIX, wait for it to
+// finish. pthread_cancel() only sends a cancel request, so a thread that
+// was canceled could still be running when its gxThread_t was deleted.
+// Under WIN32 apiCancelThread() suspends the thread, so it is not waited
+// for. Returns a non-zero value if the thread cannot be canceled.
+// NOTE: Under POSIX the thread stops at its next cancellation point. A
+// thread that never reaches one keeps this function waiting.
+{
+  if(!thread) return 1;
+  int rv = apiCancelThread(thread);
+  if(rv != 0) return rv;
+#if defined (__POSIX__)
+  pthread_join(thread->thread_id, (void **)0);
+#endif
+  return 0;
+}
+
 int gxThreadAPIWrapper::apiDestroyThread(gxThread_t *thread, int check_state)
 // Destroy the specified thread. Returns a non-zero value if
 // the thread cannot be destroyed.
@@ -816,20 +861,22 @@ int gxThreadAPIWrapper::apiDestroyThread(gxThread_t *thread, int check_state)
 	// Lets assume that is not intended to be executed
 	// at this point.
 	break;
+      // 10/24/2026: Canceled threads are waited for with apiStopThread()
+      // before the thread pointer is deleted below.
       case gxTHREAD_STATE_RUNNING :
 	// Cancel a joinable thread if it is currently running
 	if(thread->thread_type == gxTHREAD_TYPE_DETACHED) break;
-	if(apiCancelThread(thread) != 0) return 1;
+	if(apiStopThread(thread) != 0) return 1;
 	break; 
       case gxTHREAD_STATE_SUSPENDED :
 	// Cancel a joinable thread if it is currently suspended
 	if(thread->thread_type == gxTHREAD_TYPE_DETACHED) break;
-	if(apiCancelThread(thread) != 0) return 1;
+	if(apiStopThread(thread) != 0) return 1;
 	break;
       case gxTHREAD_STATE_WAITING :
 	// Cancel a joinable thread if it is currently waiting
 	if(thread->thread_type == gxTHREAD_TYPE_DETACHED) break;
-	if(apiCancelThread(thread) != 0) return 1;
+	if(apiStopThread(thread) != 0) return 1;
 	break;
       default:
 	break;

@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 04/05/1996
-// Date Last Modified: 10/30/2025
-// Copyright (c) 2001-2025 DataReel Software Development
+// Date Last Modified: 10/24/2026
+// Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -67,8 +67,8 @@ public:
   ~gxList() { ClearList(); }
 
 private: // Disallow copying and assignment
-  gxList(const gxList<TYPE> &ob) { }
-  void operator=(const gxList<TYPE> &ob) { }
+  gxList(const gxList<TYPE> &) { }
+  void operator=(const gxList<TYPE> &) { }
   
 public: // Pointer manipulation operations
   gxListNode<TYPE> *GetHead() { return head; }
@@ -94,6 +94,7 @@ public: // Add and remove functions
   void ClearList();
   void Clear() { ClearList(); }
   void DestroyList();
+  void DestroyArrayList(); // 10/24/2026: For data allocated with new[]
   void MakeEmpty(); // Called only if all the nodes have been removed 
   int RemoveHead(TYPE &X);
   int RemoveTail(TYPE &X);
@@ -283,12 +284,25 @@ template<class TYPE>
 void gxList<TYPE>::DestroyList()
 // Clear the list and destroy the node data.
 // NOTE: The data is freed with a scalar delete, so TYPE must be a pointer
-// to a single object allocated with new. Data allocated with new[] (for
-// example strings) must be removed and freed with delete[] by the caller.
+// to a single object allocated with new. Use DestroyArrayList() for data
+// allocated with new[], for example strings.
 {
   TYPE X;
   while(!IsEmpty()) {
     if(RemoveTail(X)) delete X;
+  }
+  head = tail = 0;
+}
+
+template<class TYPE>
+void gxList<TYPE>::DestroyArrayList()
+// 10/24/2026: Clear the list and destroy node data allocated with new[],
+// for example strings. TYPE must be a pointer to an array allocated with
+// new[]. Use DestroyList() for data allocated with a single-object new.
+{
+  TYPE X;
+  while(!IsEmpty()) {
+    if(RemoveTail(X)) delete[] X;
   }
   head = tail = 0;
 }

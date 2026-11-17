@@ -5,6 +5,22 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+### Changed
+- The bundled DataReel library files are synced from DataReel 6.4.1
+  (branch `6.4.1`, d2e4c03). They were from before DataReel 6.1. This
+  brings in the 6.1 to 6.4 fixes for the files DRCM uses: socket, file,
+  string, log file, thread, mutex, thread pool and time code.
+  `build/sync_datareel.sh` can be re-run against later 6.4.x trees.
+  DataReel 6.4.1 also has DRCM's FD_CLOEXEC change in gxsocket.cpp, so
+  a sync no longer removes it.
+
+### Fixed
+- With `cluster_transport = tcp`, every keep alive and client command
+  closed its socket twice (`sock.Close()` and then the gxSocket
+  destructor). If another thread opened a socket or file between the
+  two closes, the second close() closed it. DataReel's `Close()` now
+  sets the descriptors to -1 (DataReel 6.3.1).
+
 ## [1.46] - 2026-10-29
 
 There is no 1.45. 1.46 works with 1.43 and 1.44 nodes; only the node

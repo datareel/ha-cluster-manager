@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 10/30/2025
-// Copyright (c) 2001-2025 DataReel Software Development
+// Date Last Modified: 10/24/2026
+// Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -63,8 +63,8 @@ public:
   ~gxThreadAPIWrapper() { }
 
 private: // Disallow copying and assignment
-  gxThreadAPIWrapper(const gxThreadAPIWrapper &ob) { }
-  void operator=(const gxThreadAPIWrapper &ob) { }
+  gxThreadAPIWrapper(const gxThreadAPIWrapper &) { }
+  void operator=(const gxThreadAPIWrapper &) { }
 
 public: // Native thread API functions
   int apiInitThreadAttribute(gxThreadAttribute *attr);
@@ -74,6 +74,7 @@ public: // Native thread API functions
   int apiSuspendThread(gxThread_t *thread);
   int apiResumeThread(gxThread_t *thread);
   int apiCancelThread(gxThread_t *thread);
+  int apiStopThread(gxThread_t *thread); // 10/24/2026: Cancel and wait
   int apiCloseThread(gxThread_t *thread);
   int apiDestroyThread(gxThread_t *thread, int check_state = 1);
   void *apiExitThread(gxThread_t *thread, int exit_code);

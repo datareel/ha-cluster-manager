@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 10/30/2025
-// Copyright (c) 2001-2025 DataReel Software Development
+// Date Last Modified: 11/14/2026
+// Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -33,6 +33,7 @@ store thread variables prior to and after thread creation.
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
+#include <string.h>
 #include "gthreadt.h"
 #include "gxthread.h"
 #include "gxmutex.h"
@@ -158,12 +159,24 @@ gxThread_t::~gxThread_t()
   if(suspend_t) delete suspend_t;
 }
 
+// 11/16/2026 (6.4 beta 2): The message functions below check that a
+// stored value is in range. Reading an out-of-range value through the
+// enum type is undefined behaviour (UBSan reports it), so the bytes are
+// copied into an int and checked there.
+template <class E> static int gxthread_enum_value(const E &e)
+{
+  int v = 0;
+  memcpy(&v, &e, sizeof(e) < sizeof(v) ? sizeof(e) : sizeof(v));
+  return v;
+}
+
 const char *gxThread_t::ThreadExceptionMessage()
 // Returns a null terminated string that can
 // be used to log or print a thread exception.
 {
-  int error = (int)thread_error;
-  if(error > gxMaxThreadExceptionMessages) error = gxTHREAD_INVALID_CODE;
+  int error = gxthread_enum_value(thread_error);
+  // 11/14/2026: >= and < 0, the old test let the index one past the table
+  if(error < 0 || error >= gxMaxThreadExceptionMessages) error = gxTHREAD_INVALID_CODE;
   // Find the corresponding message in the exception array
   return gxThreadExceptionMessages[error];
 }
@@ -172,8 +185,8 @@ const char *gxThread_t::ThreadTypeMessage()
 // Returns a null terminated string that can
 // be used to log or print the thread type.
 {
-  int type = (int)thread_type;
-  if(type > gxMaxThreadTypeMessages) type = gxTHREAD_TYPE_JOINABLE;
+  int type = gxthread_enum_value(thread_type);
+  if(type < 0 || type >= gxMaxThreadTypeMessages) type = gxTHREAD_TYPE_JOINABLE; // 11/14/2026
   return gxThreadTypeMessages[type];
 }
 
@@ -200,8 +213,8 @@ const char *gxThread_t::ThreadPriorityClassMessage()
 // Returns a null terminated string that can
 // be used to log or print the thread's priority class.
 {
-  int type = (int)thread_priority_class;
-  if(type > gxMaxThreadPriorityClassMessages)
+  int type = gxthread_enum_value(thread_priority_class);
+  if(type < 0 || type >= gxMaxThreadPriorityClassMessages) // 11/14/2026
     type = gxTHREAD_PRIORITY_CLASS_INVALID;
   return gxThreadPriorityClassMessages[type];
 }
@@ -210,8 +223,8 @@ const char *gxThread_t::ThreadStateMessage()
 // Returns a null terminated string that can
 // be used to log or print the thread's state.
 {
-  int state = (int)thread_state;
-  if(state > gxMaxThreadStateMessages) state = gxTHREAD_STATE_INVALID;
+  int state = gxthread_enum_value(thread_state);
+  if(state < 0 || state >= gxMaxThreadStateMessages) state = gxTHREAD_STATE_INVALID; // 11/14/2026
   return gxThreadStateMessages[state];
 }
 
@@ -244,8 +257,10 @@ GXDLCODE_API int operator!=(const gxThread_t &a, const gxThread_t &b)
 #elif defined (__POSIX__)
   // NOTE: Undefined behavior will result If both gxThread_t
   // objects do not contain valid thread IDs.
-  if(pthread_equal(a.thread_id, b.thread_id) != 0) return 1;
-  return 0; // The thread IDs not equal
+  // 11/14/2026: pthread_equal() returns non-zero for EQUAL IDs, so this
+  // returned "not equal" for the same thread and "equal" for others
+  if(pthread_equal(a.thread_id, b.thread_id) == 0) return 1;
+  return 0; // The thread IDs are equal
 #else 
 #error You must define a native API: __WIN32__ or __UNIX__
 #endif

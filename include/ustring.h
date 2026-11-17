@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/29/1996
-// Date Last Modified: 10/30/2025
-// Copyright (c) 2001-2025 DataReel Software Development
+// Date Last Modified: 10/25/2026
+// Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -111,7 +111,7 @@ and overloaded += operators to support the wxString class.
 
 10/13/2002: Removed the following conversion function from the UStringB 
 class due to excessive compiler warning under Linux: 
-operator const int () const { return ((sptr != 0) && (s_length != 0)); }
+operator int () const { return ((sptr != 0) && (s_length != 0)); }
 
 10/13/2002: Removed the following conversion function to avoid having
 UStringB objects being automatically converted to int types: 
@@ -160,7 +160,7 @@ to escape values with commas.
 #endif // __USE_CPP_IOSTREAM__
 
 #if defined (__LINUX__)
-#if defined (__wxWIN201__) || (__wxWIN291__)
+#if defined (__wxWIN201__) || defined (__wxWIN291__)
 // 10/13/2002: Added support for the wxString class
 #include "wx2incs.h"
 #endif
@@ -191,8 +191,8 @@ public:
   virtual ~UStringB();
 
 private: // Copying and assignment is only allowed in the derived class
-  UStringB(const UStringB &s) { }
-  void operator=(const UStringB &s) { }
+  UStringB(const UStringB &) { }
+  void operator=(const UStringB &) { }
 
 public: // Derived class interface
   virtual int is_unicode() const = 0; // Return true for Unicode classes
