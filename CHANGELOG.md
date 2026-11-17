@@ -5,6 +5,39 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+## [1.47] - 2026-11-17
+
+Only the target of a remote standby needs 1.47 (and the node the
+command runs on). 1.47 works with 1.43 to 1.46 nodes otherwise.
+
+### Added
+- Remote standby: `drcm_server --client --command=standby -n"node"`
+  (with `--time` and `--force` as for a local standby) and
+  `--command=unstandby -n"node"` put another cluster node in standby or
+  return it to service, for example from the AWS node when away from
+  the workstation. Console: `standby node`, `standby 2h node`,
+  `unstandby node`. The client checks the target's peers with the same
+  refusal rules as a local standby and waits and prints progress.
+- `allow_remote_standby` (per node, default 0): the target accepts a
+  remote request only when its own `[CM_NODE]` section turns this on.
+- The target accepts a remote request only from an active node in the
+  CM config (named in the request), authenticated with the cluster
+  key, and in a TCP cluster only over TLS with a client certificate
+  that matches the requesting node's `tls_peer_fingerprint` when that
+  is set. The requester is identified this way, not by source
+  address, so the SSH tunnel setup works. Every remote request and
+  refusal is logged with the requesting node. 1.43 to 1.46 targets
+  refuse a remote request.
+- `test_apps/standby_test`: `TRANSPORT=tcp` runs the cluster over TCP
+  and TLS with a test CA and pinned certificates; section 9 tests
+  remote standby, unstandby and timed standby, the console form, and
+  refusals (setting off, unknown host, wrong auth key, another node's
+  name with the wrong certificate, a 1.46 target).
+- test_apps/standby_test/soak.sh: repeated standby/unstandby failover
+  cycles for a given time (default 10 minutes), no overlap allowed.
+- test_apps/standby_test/vg_session.sh: one node under valgrind for a
+  short session.
+
 ### Changed
 - The bundled DataReel library files are synced from DataReel 6.4.1
   (branch `6.4.1`, 6241e3a). They were from before DataReel 6.1. This
@@ -13,12 +46,9 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   `build/sync_datareel.sh` can be re-run against later 6.4.x trees.
   DataReel 6.4.1 also has DRCM's FD_CLOEXEC change in gxsocket.cpp, so
   a sync no longer removes it.
-
-### Added
-- test_apps/standby_test/soak.sh: repeated standby/unstandby failover
-  cycles for a given time (default 10 minutes), no overlap allowed.
-- test_apps/standby_test/vg_session.sh: one node under valgrind for a
-  short session.
+- In a TCP cluster a local standby or unstandby request must present
+  the node's own certificate when its `tls_peer_fingerprint` is set,
+  so a peer cannot pass as local through an SSH tunnel.
 
 ### Fixed
 - With `cluster_transport = tcp`, every keep alive and client command
@@ -37,6 +67,7 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   A shutdown right after startup could take a starting thread for one
   that had stopped and free it while it ran, and a canceled thread
   could be reported as "not canceled".
+
 
 ## [1.46] - 2026-10-29
 

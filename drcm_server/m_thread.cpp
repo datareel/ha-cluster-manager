@@ -423,7 +423,7 @@ void *CM_TCP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
       case CM_CMD_STANDBY:
       case CM_CMD_UNSTANDBY: {
 	gxString reply;
-	int reply_cmd = cm_handle_standby_request(f, client_name, reply);
+	int reply_cmd = cm_handle_standby_request(f, client_name, reply, conn.peer_fingerprint());
 	frame_len = cm_build_frame(txbuf, sizeof(txbuf), reply_cmd, reply.c_str(), (int)reply.length());
 	if(frame_len > 0) conn.write_full(txbuf, frame_len);
 	break;

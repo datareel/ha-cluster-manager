@@ -61,6 +61,7 @@ CMnode::CMnode()
   keep_filesystems = 1;
   keep_applications = 0;
   peer_state = CM_PEER_STATE_UNKNOWN;
+  allow_remote_standby = 0;
 }
 
 int CMnode::CLUSTER_TAKE_OVER_FLAG(int set, int unset) 
@@ -97,6 +98,7 @@ void CMnode::Copy(const CMnode &n) {
   ipaddrs_check = n.ipaddrs_check;
   filesystems_check = n.filesystems_check;
   node_is_active = n.node_is_active;
+  allow_remote_standby = n.allow_remote_standby;
   cluster_take_over_flag = n.cluster_take_over_flag; 
   copy_list(n.crontabs, crontabs); 
   copy_list(n.backup_crontabs, backup_crontabs); 
@@ -711,6 +713,8 @@ const char *cfg_node_keys[] = {
   "node_filesystems", "node_backup_filesystems",
   // TCP/cloud mode (Phase 4)
   "peer_endpoints", "tls_peer_fingerprint", "floating_ip_provider",
+  // Remote standby (1.47)
+  "allow_remote_standby",
   0
 };
 
@@ -1293,6 +1297,9 @@ int LoadOrBuildConfigFile()
 	}
 	if(cfgkey == "hostname") {
 	  n->hostname = CfgGetEqualToString(ptr->data);
+	}
+	if(cfgkey == "allow_remote_standby") {
+	  n->allow_remote_standby = CfgGetTrueFalseValue(ptr->data);
 	}
 	if(cfgkey == "node_is_active") {
 	  n->node_is_active = CfgGetTrueFalseValue(ptr->data);

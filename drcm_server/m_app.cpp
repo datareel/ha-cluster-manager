@@ -163,6 +163,9 @@ void PrintNodeConfig()
     else {
       NT_print("This not is not active");
     }
+    if(ptr->data->allow_remote_standby) {
+      NT_print("Other cluster nodes may put this node in standby");
+    }
     if(ptr->data->keep_services) {
       NT_print("Will keep node_services enabled if CM is offline");
     }
@@ -944,6 +947,10 @@ int print_console_help()
     cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=standby --time=2h" << "\n";
     cout << "\t(--time=55m, 90s or 1h30m: the node returns to service by itself, up to " << CM_STANDBY_MAX_TEXT << ")" << "\n";
     cout << "\n";
+    cout << "Remote standby: put another node in standby from this node (that node needs allow_remote_standby = 1):" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=standby -n\"CMNODE_nodename\" [--time=2h] [--force]" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=unstandby -n\"CMNODE_nodename\"" << "\n";
+    cout << "\n";
     cout << "Return this node to service, it takes back its resources:" << "\n";
     cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=unstandby" << "\n";
   }
@@ -962,6 +969,8 @@ int print_console_help()
     cout << "standby     - Put this node in standby, peers take over its resources" << "\n";
     cout << "standby force - Standby even if no peer can take over" << "\n";
     cout << "standby 2h  - Timed standby, the node returns to service after 2h (also 55m, 90s, 1h30m)" << "\n";
+    cout << "standby node - Remote standby of another node (it needs allow_remote_standby = 1)" << "\n";
+    cout << "unstandby node - Return another node to service" << "\n";
     cout << "unstandby   - Return this node to service" << "\n";
   }
 
@@ -989,9 +998,11 @@ int run_console_command(const gxString &command)
   if(!arg.is_null() && sbuf == "ping") return ping_cluster_node(arg); 
   if(!arg.is_null() && sbuf == "rstats") return get_rstats_node(arg); 
   if(sbuf == "standby") {
-    // Console: standby [force] [time], such as "standby 2h"
+    // Console: standby [force] [time] [node], such as "standby 2h" or
+    // "standby 1h cmnode2" (a remote standby of another node, 1.47)
     int force = servercfg->client_force;
     long secs = servercfg->client_standby_secs;
+    CMnode *target = 0;
     gxString words = arg, word;
     while(!words.is_null()) {
       words.TrimLeadingSpaces();
@@ -1000,16 +1011,30 @@ int run_console_command(const gxString &command)
       if(words.Find(" ") != -1) words.DeleteBeforeIncluding(" ");
       else words.Clear();
       if(word.is_null()) continue;
+      long word_secs;
       if(word == "force") force = 1;
-      else if(cm_parse_duration(word.c_str(), secs) != 0) {
-	cout << "standby: bad time " << word.c_str() << ", use a duration such as 2h, 55m, 90s or 1h30m, up to "
-	     << CM_STANDBY_MAX_TEXT << "\n" << flush;
+      else if(cm_parse_duration(word.c_str(), word_secs) == 0) secs = word_secs;
+      else if((target = get_client_node(word)) != 0) continue;
+      else {
+	cout << "standby: " << word.c_str() << " is not a cluster node or a time such as 2h, 55m, 90s or 1h30m (up to "
+	     << CM_STANDBY_MAX_TEXT << ")" << "\n" << flush;
 	return 1;
       }
     }
-    return cm_client_standby(force, secs);
+    return cm_client_standby(force, secs, target);
   }
-  if(sbuf == "unstandby" && arg.is_null()) return cm_client_unstandby();
+  if(sbuf == "unstandby") {
+    // Console: unstandby [node]
+    CMnode *target = 0;
+    if(!arg.is_null()) {
+      target = get_client_node(arg);
+      if(!target) {
+	cout << "unstandby: no cluster node found for " << arg.c_str() << "\n" << flush;
+	return 1;
+      }
+    }
+    return cm_client_unstandby(target);
+  }
   if(!console_command_is_valid(command)) return -1;
   if(command == "help") return print_console_help(); 
   if(command == "printcfg") return print_config(); 

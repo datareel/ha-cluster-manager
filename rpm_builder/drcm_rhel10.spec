@@ -1,6 +1,6 @@
 BuildArch: x86_64
 Name: drcm_server
-Version: 1.46        
+Version: 1.47        
 Release: 1.el10.x86_64
 Summary: Datareel Cluster Manager RPM        
 Group: System Environment/Daemons
@@ -122,6 +122,12 @@ if [ $1 -ge 1 ] ; then
 fi
 
 %changelog
+* Tue Nov 17 2026 Datareel <datareel.com>
+- Release 1.47: remote standby (--command=standby -n"node") from
+  another cluster node, allow_remote_standby per node; bundled
+  DataReel library files from DataReel 6.4.1 (thread, socket and
+  timed wait fixes)
+
 * Thu Oct 29 2026 Datareel <datareel.com>
 - Release 1.46: timed standby (--command=standby --time=2h), the node
   returns to service by itself when the time is up

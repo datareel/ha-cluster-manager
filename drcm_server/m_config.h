@@ -194,6 +194,7 @@ struct CMnode {
   gxList<gxString> backup_filesystems;
   CMnode *active_ptr;
   int node_is_active;
+  int allow_remote_standby; // 1 = other cluster nodes may put this node in standby (1.47)
 
   // TCP/cloud mode (Phase 4). Optional per node.
   gxList<gxString> peer_endpoints;   // one or more host:port keep-alive paths

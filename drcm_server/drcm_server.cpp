@@ -269,8 +269,9 @@ int run_server()
   // Stay in standby across a restart until an unstandby. Load it before
   // the keep alive server answers, so peers never see this node as
   // active and fail its resources back to it.
-  if(cm_standby_load()) {
-    NT_print("Starting in standby, found", servercfg->standby_file.c_str());
+  gxString standby_message;
+  if(cm_standby_load(standby_message)) {
+    NT_print(standby_message.c_str());
   }
 
   while(--retries) {
@@ -544,6 +545,14 @@ int run_client()
     }
     if(command_buf == "rstats" && !servercfg->client_ping_nodename.is_null()) {
       command_buf << clear << "rstats " << servercfg->client_ping_nodename; 
+    }
+    if((command_buf == "standby" || command_buf == "unstandby") && !servercfg->client_ping_nodename.is_null()) {
+      // Remote standby or unstandby of the node named with -n (1.47)
+      if(!get_client_node(servercfg->client_ping_nodename)) {
+	cout << command_buf.c_str() << ": no cluster node found for " << servercfg->client_ping_nodename.c_str() << "\n" << flush;
+	return 1;
+      }
+      command_buf << " " << servercfg->client_ping_nodename;
     }
     error_level = run_console_command(command_buf);
     log_t.flush_all_logs();

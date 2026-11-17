@@ -33,6 +33,10 @@ enum cm_tls_status {
   CM_TLS_EARG
 };
 
+// Normalize a fingerprint (colon separated or plain, any case, optional
+// "sha256" prefix) to lowercase hex with no separators.
+void cm_tls_normalize_fingerprint(const char *in, char *out, size_t out_n);
+
 // One TLS context, shared by all connections of the same role.
 // optional_peer_fingerprint, when non-NULL, is an extra check beyond CA
 // verification: the peer cert's SHA-256 fingerprint must equal it
@@ -75,11 +79,14 @@ struct CMTlsConn {
 
   const char *last_error() const { return err_; }
   const char *peer_subject() const { return peer_subject_; }
+  // SHA-256 of the peer certificate, lowercase hex, no separators
+  const char *peer_fingerprint() const { return peer_fp_; }
 
   SSL *ssl;
   int  fd;
   char err_[256];
   char peer_subject_[256];
+  char peer_fp_[2 * 64 + 1];
 };
 
 #endif // __DRCM_TLS_HPP__
