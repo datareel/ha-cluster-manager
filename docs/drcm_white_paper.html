@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DRCM White Paper</title>
+<meta name="description" content="DataReel Cluster Manager (DRCM) design and security white paper: architecture, failover and standby, hybrid local and cloud clusters, split brain protection, authenticated messages, TLS, post-quantum readiness, platforms, operations and limits.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --text: #1c2330;
+  --text-muted: #5a6474;
+  --border: #dde1e7;
+  --accent: #1f6feb;
+  --accent-soft: #e6efff;
+  --code-bg: #f3f5f8;
+  --code-text: #24292f;
+  --ok: #1a7f37;
+  --ok-soft: #e7f6ec;
+  --warn: #9a6700;
+  --warn-soft: #fff6dc;
+  --bad: #c62828;
+  --bad-soft: #fdecec;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --rail: 270px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1419;
+    --surface: #161c24;
+    --surface-2: #1d2530;
+    --text: #e3e8ef;
+    --text-muted: #9aa5b4;
+    --border: #2a3441;
+    --accent: #58a6ff;
+    --accent-soft: #15253d;
+    --code-bg: #111821;
+    --code-text: #d7dee8;
+    --ok: #3fb950;
+    --ok-soft: #12261a;
+    --warn: #d29922;
+    --warn-soft: #2a2110;
+    --bad: #f85149;
+    --bad-soft: #2d1416;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1419;
+  --surface: #161c24;
+  --surface-2: #1d2530;
+  --text: #e3e8ef;
+  --text-muted: #9aa5b4;
+  --border: #2a3441;
+  --accent: #58a6ff;
+  --accent-soft: #15253d;
+  --code-bg: #111821;
+  --code-text: #d7dee8;
+  --ok: #3fb950;
+  --ok-soft: #12261a;
+  --warn: #d29922;
+  --warn-soft: #2a2110;
+  --bad: #f85149;
+  --bad-soft: #2d1416;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-text-size-adjust: 100%;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Top bar */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 12px;
+  height: 56px; padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.brand span { color: var(--text-muted); font-weight: 500; }
+.topbar .spacer { flex: 1; }
+.btn {
+  font: inherit; font-size: 14px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text);
+  white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#navToggle { display: none; }
+
+/* Layout */
+.layout { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); }
+nav.rail {
+  position: sticky; top: 56px; align-self: start;
+  height: calc(100vh - 56px); overflow-y: auto;
+  padding: 20px 12px 40px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+nav.rail h2 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); margin: 0 8px 8px;
+}
+nav.rail ol { list-style: none; margin: 0; padding: 0; counter-reset: sec; }
+nav.rail li a {
+  display: block; padding: 6px 10px; border-radius: 6px;
+  color: var(--text-muted); font-size: 14px; line-height: 1.4;
+}
+nav.rail li a::before {
+  counter-increment: sec; content: counter(sec) ".";
+  display: inline-block; width: 26px; color: var(--text-muted); opacity: 0.7;
+}
+nav.rail li a:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
+nav.rail li a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+main { padding: 32px 40px 80px; max-width: 980px; min-width: 0; }
+header.hero { margin-bottom: 32px; }
+header.hero h1 { font-size: 34px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+header.hero p { color: var(--text-muted); margin: 0; font-size: 17px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.pill {
+  font-size: 13px; padding: 3px 10px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);
+}
+
+section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 24px 28px;
+  margin-bottom: 24px;
+}
+section > h2 { font-size: 24px; margin: 0 0 12px; letter-spacing: -0.01em; }
+h3 { font-size: 18px; margin: 24px 0 8px; }
+h4 { font-size: 15px; margin: 18px 0 6px; }
+p { margin: 0 0 12px; }
+ul, ol { padding-left: 22px; margin: 0 0 12px; }
+li { margin: 3px 0; }
+
+code {
+  font-family: var(--mono); font-size: 0.88em;
+  background: var(--code-bg); color: var(--code-text);
+  padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+pre {
+  font-family: var(--mono); font-size: 13.5px; line-height: 1.55;
+  background: var(--code-bg); color: var(--code-text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 16px; margin: 0 0 14px; overflow-x: auto;
+}
+pre code { background: none; border: 0; padding: 0; font-size: inherit; overflow-wrap: normal; }
+
+.table-wrap { overflow-x: auto; margin: 0 0 14px; border: 1px solid var(--border); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+th { background: var(--surface-2); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+
+.callout {
+  border-left: 4px solid var(--accent);
+  background: var(--accent-soft);
+  padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 0 0 14px;
+}
+.callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+.callout.bad { border-color: var(--bad); background: var(--bad-soft); }
+.callout.ok { border-color: var(--ok); background: var(--ok-soft); }
+.callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+
+.badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.badge.ok { color: var(--ok); background: var(--ok-soft); }
+.badge.warn { color: var(--warn); background: var(--warn-soft); }
+.badge.bad { color: var(--bad); background: var(--bad-soft); }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 0 0 14px; }
+.card { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; background: var(--surface-2); }
+.card h4 { margin-top: 0; }
+.card p:last-child { margin-bottom: 0; }
+
+.diagram { margin: 6px 0 16px; overflow-x: auto; }
+.diagram svg { display: block; max-width: 100%; height: auto; }
+.diagram .box { fill: var(--surface-2); stroke: var(--border); }
+.diagram .boxa { fill: var(--accent-soft); stroke: var(--accent); }
+.diagram text { fill: var(--text); font-family: var(--font); font-size: 13px; }
+.diagram .muted { fill: var(--text-muted); font-size: 12px; }
+.diagram .line { stroke: var(--text-muted); stroke-width: 1.5; fill: none; }
+.diagram .dash { stroke-dasharray: 5 4; }
+
+footer { color: var(--text-muted); font-size: 14px; padding-top: 8px; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  #navToggle { display: inline-flex; }
+  .brand span { display: none; }
+  nav.rail {
+    position: fixed; top: 56px; left: 0; z-index: 15;
+    width: min(300px, 85vw); transform: translateX(-100%);
+    transition: transform 0.2s ease; box-shadow: var(--shadow);
+  }
+  body.nav-open nav.rail { transform: none; }
+  main { padding: 20px 16px 60px; }
+  section { padding: 18px 16px; }
+  header.hero h1 { font-size: 27px; }
+}
+@media print {
+  .topbar, nav.rail { display: none; }
+  .layout { display: block; }
+  section { box-shadow: none; break-inside: avoid-page; }
+}
+</style>
+</head>
+<body>
+<!-- Made by tools/make_white_paper.py from docs/drcm_white_paper.md; edit the .md file. -->
+<div class="topbar">
+  <button class="btn" id="navToggle" type="button" aria-controls="rail" aria-expanded="false">&#9776; Contents</button>
+  <div class="brand">DRCM <span>White Paper</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeToggle" type="button" aria-label="Toggle light or dark theme"><span id="themeLabel">Theme</span></button>
+</div>
+
+<div class="layout">
+<nav class="rail" id="rail" aria-label="Sections">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#sec1">Summary</a></li>
+    <li><a href="#sec2">The problem it solves</a></li>
+    <li><a href="#sec3">Architecture</a></li>
+    <li><a href="#sec4">Failover, failback and standby</a></li>
+    <li><a href="#sec5">Run local, fail over to the cloud</a></li>
+    <li><a href="#sec6">Split brain protection</a></li>
+    <li><a href="#sec7">Security design</a></li>
+    <li><a href="#sec8">Post-quantum readiness</a></li>
+    <li><a href="#sec9">Platforms and packaging</a></li>
+    <li><a href="#sec10">Operations</a></li>
+    <li><a href="#sec11">AI-assisted install, upgrade and support</a></li>
+    <li><a href="#sec12">Limits, stated plainly</a></li>
+    <li><a href="#sec13">Licensing</a></li>
+    <li><a href="#sec14">References</a></li>
+    <li><a href="#sec15">Reporting a security issue</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <h1>DataReel Cluster Manager (DRCM): design and security white paper</h1>
+  <p>How DRCM keeps Linux services running through failures and maintenance, on premises, in the cloud or both, and how it protects the cluster.</p>
+  <div class="meta">
+    <span class="pill">Release 1.48</span>
+    <span class="pill">RHEL 10 &middot; 9 &middot; 8</span>
+    <span class="pill">Plain text copy: drcm_white_paper.txt</span>
+  </div>
+</header>
+<section id="intro">
+<p><strong>Release:</strong> 1.48 (November 2026). Items marked <strong>1.49</strong> are on the 1.49
+release branch and are planned for the next release.
+<strong>Audience:</strong> system administrators, architects and security reviewers
+deciding whether to run services on DRCM clusters. The source code is
+published under the GNU General Public License, so everything here can be
+checked against it. The commands and every setting are in the
+<a href="https://datareel.com/drcm/admin_guide.html">administrator guide</a>.</p>
+</section>
+<section id="sec1">
+<h2>1. Summary</h2>
+<p>DRCM keeps services running when a Linux server fails or is taken down for
+patching. Two or more nodes, servers or workstations, watch each other with
+authenticated keep alive messages. When a node stops answering, or is put
+in standby for maintenance, its peers take over its resources: floating IP
+addresses, system services, applications, file systems and cron jobs. A
+cluster can sit in one data center, span several sites, run entirely in a
+cloud such as AWS, or combine on-premises nodes with cloud nodes.</p>
+<p>DRCM is one small C++ program, <code>drcm_server</code>, with plain text configuration
+and shell resource scripts. It has run in production for ten years, on RHEL
+6, RHEL 7, RHEL 8, RHEL 9 and RHEL 10; current releases support RHEL 8, 9
+and 10.</p>
+</section>
+<section id="sec2">
+<h2>2. The problem it solves</h2>
+<ul>
+<li><strong>Unplanned failures:</strong> a host, a VM, a disk or a network path fails, and
+  the services on it stop until someone notices and moves them.</li>
+<li><strong>Planned maintenance:</strong> patching and reboots take services down unless
+  something moves them first and moves them back afterwards.</li>
+<li><strong>Sites and clouds:</strong> a second node in another building, site or cloud
+  region protects against the loss of a whole location, but only if
+  failover works across routed and internet links, not just a shared LAN.</li>
+<li><strong>Split brain:</strong> when the link between two nodes breaks, each may think
+  the other is dead and both start the same service. A cluster manager has
+  to prevent that, not just detect failures.</li>
+</ul>
+</section>
+<section id="sec3">
+<h2>3. Architecture</h2>
+<div class="diagram" role="img" aria-label="Two or more DRCM nodes exchange authenticated keep alives; each node runs resource threads that start and stop resources with scripts">
+<svg viewBox="0 0 720 250" width="720" xmlns="http://www.w3.org/2000/svg">
+  <rect class="boxa" x="20" y="30" width="250" height="190" rx="10"/>
+  <text x="38" y="56" font-weight="600">cmnode1 (primary for web)</text>
+  <text class="muted" x="38" y="80">drcm_server</text>
+  <text class="muted" x="38" y="100">UDP or TCP + TLS server thread</text>
+  <text class="muted" x="38" y="120">resource threads: IPs, services,</text>
+  <text class="muted" x="38" y="138">applications, file systems, crons</text>
+  <text class="muted" x="38" y="162">/etc/drcm/resources/*.sh</text>
+  <text class="muted" x="38" y="182">/etc/drcm/cm.cfg (same on all)</text>
+  <text class="muted" x="38" y="202">/etc/drcm/.auth/authkey (root only)</text>
+  <rect class="box" x="450" y="30" width="250" height="190" rx="10"/>
+  <text x="468" y="56" font-weight="600">cmnode2 (backup for web)</text>
+  <text class="muted" x="468" y="80">drcm_server</text>
+  <text class="muted" x="468" y="100">same binary, same /etc/drcm</text>
+  <text class="muted" x="468" y="120">takes over web when cmnode1</text>
+  <text class="muted" x="468" y="138">misses dead_node_count keep alives</text>
+  <text class="muted" x="468" y="162">or goes into standby</text>
+  <path class="line" d="M270 95 H450"/>
+  <path class="line" d="M450 125 H270"/>
+  <text x="292" y="87">keep alives, commands</text>
+  <text class="muted" x="292" y="145">signed with HMAC-SHA256</text>
+  <text class="muted" x="20" y="18">clients use the floating IP, which moves to the node that runs the resource</text>
+  <rect class="box" x="290" y="190" width="140" height="34" rx="8"/>
+  <text x="309" y="212">witness (optional)</text>
+  <path class="line dash" d="M270 207 H290"/>
+  <path class="line dash" d="M450 207 H430"/>
+</svg>
+</div>
+
+<ul>
+<li><strong>Peers, no master.</strong> Every node runs the same <code>drcm_server</code> binary with
+  the same <code>/etc/drcm</code> directory. Resources are spread across the nodes,
+  and each resource names its primary node and its backup nodes in order.</li>
+<li><strong>Threads.</strong> A UDP server thread answers keep alives and client commands;
+  in TCP mode a TCP + TLS server thread serves the same messages. One
+  thread per resource type (crontabs, IP addresses, services, applications,
+  file systems) starts, stops and watches its resources on its own check
+  interval. A log thread and a dedicated signal thread run alongside.</li>
+<li><strong>Keep alives.</strong> Each node probes every other active node. After
+  <code>dead_node_count</code> failed probes in a row, the node is declared dead and
+  its backups take over its resources, staggered by their position in the
+  configuration so two backups do not start the same resource at once.</li>
+<li><strong>Resource scripts.</strong> Shell scripts in <code>/etc/drcm/resources</code> do the start,
+  stop and watch work: floating IPs with NetworkManager (IPv4 and IPv6),
+  AWS Elastic IPs and route-table VIPs, NFS and CIFS mounts, system
+  services, cron jobs. Sites add their own with the same arguments.</li>
+<li><strong>Client commands.</strong> <code>drcm_server --client</code> shows the cluster
+  (<code>cm_stat</code>, <code>rstats</code>, <code>ping</code>, <code>printcfg</code>) and puts nodes in standby.
+  Client commands are authenticated cluster messages like the keep alives.</li>
+</ul>
+</section>
+<section id="sec4">
+<h2>4. Failover, failback and standby</h2>
+<ul>
+<li><strong>Failover.</strong> When a node is declared dead, each of its resources starts
+  on its first live backup. When the node comes back, it takes its own
+  resources back (failback) and the backup stops its copies.</li>
+<li><strong>Keeping resources up while DRCM stops.</strong> <code>keep_services</code>,
+  <code>keep_applications</code> and <code>keep_filesystems</code> leave a node's own resources
+  running when DRCM itself is stopped or restarted, for example during a
+  DRCM upgrade.</li>
+<li><strong>Standby (1.43 and later).</strong> <code>drcm_server --client --command=standby</code>
+  moves a node's resources to its backups while DRCM keeps running, for
+  patching or to test that applications fail over. It refuses, and
+  changes nothing, if no live peer can take the resources (unless
+  <code>--force</code>). <code>unstandby</code> returns the node to service and waits for the
+  peers to stop their copies first, so a resource never runs twice.</li>
+<li><strong>Timed standby (1.46).</strong> <code>--time=2h</code> ends the standby by itself, even if
+  nobody is there to run <code>unstandby</code>.</li>
+<li><strong>Remote standby (1.47).</strong> <code>-n"node"</code> puts another node in standby from
+  this one, for example from a cloud node when the main site is
+  unattended. It is off unless the target sets <code>allow_remote_standby = 1</code>,
+  and the target accepts it only from a cluster node identified by the
+  cluster key and, in TCP mode, by its pinned TLS certificate.</li>
+</ul>
+</section>
+<section id="sec5">
+<h2>5. Run local, fail over to the cloud</h2>
+<div class="diagram" role="img" aria-label="A primary node in the organization&#x27;s data center and a backup node in a cloud region, joined by TCP and TLS over the internet, with data replication and an optional witness in a third place">
+<svg viewBox="0 0 720 230" width="720" xmlns="http://www.w3.org/2000/svg">
+  <rect class="box" x="10" y="20" width="270" height="180" rx="12"/>
+  <text x="26" y="44" font-weight="600">Your data center</text>
+  <rect class="boxa" x="30" y="60" width="230" height="120" rx="10"/>
+  <text x="46" y="86" font-weight="600">primary node</text>
+  <text class="muted" x="46" y="108">floating IP (NetworkManager)</text>
+  <text class="muted" x="46" y="128">services, applications, crons</text>
+  <text class="muted" x="46" y="148">data directories</text>
+  <rect class="box" x="440" y="20" width="270" height="180" rx="12"/>
+  <text x="456" y="44" font-weight="600">Cloud region (for example AWS)</text>
+  <rect class="boxa" x="460" y="60" width="230" height="120" rx="10"/>
+  <text x="476" y="86" font-weight="600">backup node</text>
+  <text class="muted" x="476" y="108">Elastic IP or route-table VIP</text>
+  <text class="muted" x="476" y="128">starts the services on failover</text>
+  <text class="muted" x="476" y="148">replicated data</text>
+  <path class="line" d="M260 95 H460"/>
+  <text x="290" y="88">TCP + mutual TLS</text>
+  <path class="line dash" d="M260 140 H460"/>
+  <text class="muted" x="290" y="134">rsync over SSH (data)</text>
+  <rect class="box" x="290" y="182" width="140" height="34" rx="8"/>
+  <text x="309" y="204">witness (third site)</text>
+</svg>
+</div>
+
+<p>A common layout keeps the primary node in the organization's own data
+center and a backup node in a cloud such as AWS:</p>
+<ul>
+<li><strong>Transport.</strong> The UDP transport suits nodes on one network. Across
+  routed or internet links, the TCP transport carries every cluster
+  message inside mutually authenticated TLS on one TCP port (default
+  53897). An SSH tunnel works too.</li>
+<li><strong>Floating addresses in AWS.</strong> An interface alias does not move between
+  EC2 instances, so <code>aws_ipv4addr.sh</code> moves the address through the EC2
+  API: an Elastic IP (associated with the active instance) or a
+  route-table VIP (the VIP's /32 route points at the active instance).</li>
+<li><strong>Data.</strong> 2-way file replication keeps data directories in step between
+  nodes with no shared storage, over SSH and rsync, and an optional third
+  copy goes to an off-site host. A primary that comes back after a
+  failover does not start its scheduled jobs until the data has been
+  synchronized back (<code>crontab_fs_guard.sh</code>).</li>
+<li><strong>Split brain across sites</strong> is the main risk of this layout; section 6
+  covers the protections.</li>
+</ul>
+</section>
+<section id="sec6">
+<h2>6. Split brain protection</h2>
+<p>DRCM has three independent protections. Each is optional and each is a
+plain setting, so a site uses the ones that fit its network.</p>
+<ul>
+<li><strong>Witness quorum (1.42).</strong> With <code>quorum_required = 1</code>, a node takes over a
+  dead peer's resources only if it can reach a third DRCM endpoint, the
+  witness, with an authenticated message. A node that cannot reach the
+  witness is probably the isolated one and stands down. With no witness
+  configured, quorum fails closed.</li>
+<li><strong>Self-isolation (1.43).</strong> <code>isolation_check</code> names a script that tells
+  whether this node can still reach the outside world (the supplied
+  <code>internet_check.sh</code> tests public addresses). When every peer stops
+  answering and the check also fails, the node stops its own floating IPs,
+  services, applications and cron jobs and takes over nothing. Tested on a
+  workstation and AWS cluster: with the workstation's internet link down,
+  it stood down its resources 25 seconds after the link was lost, before
+  the AWS node took over.</li>
+<li><strong>Takeover check (1.43).</strong> <code>takeover_check</code> runs a script before every
+  takeover; a non-zero exit stops it. The supplied <code>drsm_report_check.sh</code>
+  asks a DataReel System Monitor dashboard when the "dead" peer last
+  reported: a recent report means only the cluster link is down, so the
+  takeover is refused.</li>
+</ul>
+</section>
+<section id="sec7">
+<h2>7. Security design</h2>
+<div class="diagram" role="img" aria-label="Every cluster message is a signed version 2 frame; in TCP mode the frame travels inside mutually authenticated TLS">
+<svg viewBox="0 0 720 200" width="720" xmlns="http://www.w3.org/2000/svg">
+  <rect class="box" x="20" y="20" width="680" height="160" rx="12"/>
+  <text x="38" y="44" font-weight="600">TLS 1.2+ (TCP transport): mutual certificates from the cluster CA, optional pinning</text>
+  <text class="muted" x="38" y="64">key exchange X25519MLKEM768 (post-quantum hybrid) with OpenSSL 3.5 and TLS 1.3</text>
+  <rect class="boxa" x="40" y="80" width="640" height="84" rx="10"/>
+  <text x="58" y="104" font-weight="600">version 2 frame (UDP and TCP)</text>
+  <text class="muted" x="58" y="126">76-byte header: command, length, timestamp, sequence, 16-byte nonce</text>
+  <text class="muted" x="58" y="146">payload | HMAC-SHA256 over the whole frame, keyed with the 2048-byte cluster key</text>
+</svg>
+</div>
+
+<h3>7.1 What is protected, and from whom</h3>
+<p>The cluster messages decide where services run. An attacker who could
+forge them could stop services or start them on the wrong node. DRCM
+assumes an attacker who can send packets to the cluster port, record and
+replay traffic, and, across the internet, sit on the path between nodes.
+It does not defend against an attacker who already has root on a cluster
+node: root can read the cluster key and run any command.</p>
+<h3>7.2 Authenticated messages (1.42 and later)</h3>
+<ul>
+<li><strong>Cluster key.</strong> Every node holds the same <code>/etc/drcm/.auth/authkey</code>: 2048
+  random bytes, readable by root only (folder mode 700, file mode 600). The
+  server checks the permissions at startup and warns if other users can
+  read the key.</li>
+<li><strong>Every message is signed.</strong> Each keep alive, reply and client command is
+  a version 2 frame: a 76-byte header (magic, version, command, flags,
+  payload length, timestamp, sequence number and a 16-byte random nonce)
+  plus the payload, with an HMAC-SHA256 over the whole frame keyed with the
+  cluster key. The HMAC is checked in constant time before any field is
+  trusted, so a forged or changed message is rejected.</li>
+<li><strong>Replay protection.</strong> The receiver remembers the last 256 nonces of each
+  peer and rejects an exact replay without needing synchronized clocks. On
+  a TCP connection the sequence number must also increase. An optional
+  <code>replay_window_secs</code> also rejects old timestamps when clocks are
+  synchronized.</li>
+<li><strong>Bounded input.</strong> Payloads are capped at 65,507 bytes and statistics
+  replies at 64 KB, so a length field cannot drive a large allocation.
+  The UDP protocol was fuzzed with 2,000 malformed packets under
+  AddressSanitizer and UBSan without a fault.</li>
+</ul>
+<h3>7.3 TLS for the TCP transport</h3>
+<ul>
+<li><strong>Mutual authentication.</strong> Both ends present a certificate signed by the
+  cluster's own certificate authority and verify the other end against
+  it; the handshake fails closed. Plain TCP, a client without a
+  certificate and a certificate from another CA are refused at the
+  handshake.</li>
+<li><strong>Pinning.</strong> <code>tls_peer_fingerprint</code> pins a node's certificate by its
+  SHA-256 fingerprint; any other certificate is rejected.</li>
+<li><strong>Two layers.</strong> TLS adds encryption and certificate checks; it does not
+  replace the frame HMAC. A client with a valid cluster certificate but
+  without the cluster key still cannot forge a command.</li>
+<li><strong>Versions.</strong> TLS 1.2 is the floor; <code>tls_min_version = 1.3</code> raises it.</li>
+</ul>
+<h3>7.4 Running commands safely</h3>
+<ul>
+<li>Application start, stop and check commands run as the configured user
+  through <code>su</code> or <code>sudo</code>, with the arguments shell quoted.</li>
+<li>Process lock files are mode 644, process IDs are matched exactly, and a
+  lock owner can only stop its own child processes.</li>
+<li>The CIFS password goes in a private credentials file, never on a command
+  line. SSH and rsync calls use <code>StrictHostKeyChecking=accept-new</code>, which
+  refuses a host key that changes.</li>
+<li>Signals are handled in a dedicated thread, not in a signal handler.</li>
+<li>The server is built with stack protector, <code>_FORTIFY_SOURCE=2</code>, position
+  independent code and full RELRO.</li>
+</ul>
+</section>
+<section id="sec8">
+<h2>8. Post-quantum readiness</h2>
+<ul>
+<li><strong>Not affected by quantum computers:</strong> the message HMAC-SHA256 with the
+  2048-byte shared cluster key. It is symmetric, so Shor's algorithm does
+  not apply, and Grover's algorithm still leaves far more than 128 bits of
+  strength.</li>
+<li><strong>TLS key exchange.</strong> A recorded TLS session could be decrypted later by
+  a quantum computer if its key exchange is classic (X25519 or ECDHE).
+  OpenSSL 3.5 adds the hybrid key exchange X25519MLKEM768 (ML-KEM-768, NIST
+  FIPS 203, combined with X25519) and prefers it in TLS 1.3. The RHEL 9 and
+  RHEL 10 RPMs use the system OpenSSL 3.5, so TCP clusters of those nodes
+  negotiate it with TLS 1.3.</li>
+<li><strong>1.49:</strong></li>
+<li>The RHEL 8 RPM is built with OpenSSL 3.5 (EPEL <code>openssl3</code>) instead of
+    RHEL 8's OpenSSL 1.1.1, so every node can use the hybrid key exchange.</li>
+<li>A <code>tls_groups</code> setting (default <code>X25519MLKEM768:X25519</code>) and a strict
+    <code>tls_pq_only</code> mode, which allows only the hybrid group and requires
+    TLS 1.3. <code>--check-config</code> refuses a group the linked OpenSSL does not
+    have.</li>
+<li>The log shows each peer's TLS version and key exchange, so the
+    administrator can see that the hybrid group is in use, and
+    <code>drcm_server --version</code> prints the linked OpenSSL.</li>
+<li>Recommended once every node runs 1.49: <code>tls_min_version = 1.3</code>.</li>
+<li><strong>Certificates.</strong> Node certificates (RSA or ECDSA) authenticate live
+  handshakes; recorded traffic does not help forge them later.
+  Post-quantum certificates (ML-DSA) are a possible later option.</li>
+<li><strong>UDP transport.</strong> UDP messages are authenticated but not encrypted, with
+  or without quantum computers. Use the TCP transport where cluster
+  traffic must stay confidential.</li>
+</ul>
+</section>
+<section id="sec9">
+<h2>9. Platforms and packaging</h2>
+<ul>
+<li><strong>Supported:</strong> RHEL 10 and RHEL 9, and RHEL 8 (best effort), and
+  compatible distributions. RHEL 6 and 7 are no longer supported; 1.37 was
+  their last release.</li>
+<li><strong>Packages:</strong> RPMs for RHEL 8, 9 and 10 and the source code, each with a
+  SHA-256 checksum, on the <a href="https://datareel.com/downloads/drcm_downloads.php">downloads page</a>.
+  The RPM installs a native systemd unit.</li>
+<li><strong>OpenSSL per platform:</strong> RHEL 10 and RHEL 9 use the system OpenSSL 3.5.
+  Up to 1.48 the RHEL 8 RPM uses RHEL 8's OpenSSL 1.1.1; from <strong>1.49</strong> it
+  uses OpenSSL 3.5 from EPEL (<code>openssl3-libs</code>), installed next to the
+  system OpenSSL without replacing it.</li>
+<li><strong>Networking:</strong> NetworkManager for floating IPs on RHEL 8 and later, and
+  firewalld for the cluster port. Floating IPs can be IPv4 or IPv6; the
+  cluster traffic between nodes is IPv4.</li>
+</ul>
+</section>
+<section id="sec10">
+<h2>10. Operations</h2>
+<ul>
+<li><strong>Install:</strong> the RPM on every node, the same <code>/etc/drcm</code> everywhere, one
+  cluster key copied to every node.</li>
+<li><strong>Check before start:</strong> <code>drcm_server --check-config</code> reports every
+  configuration error, missing script and missing TLS file before the
+  server runs.</li>
+<li><strong>Watch:</strong> <code>cm_stat</code> shows every node, its state and where each resource
+  runs; logs are in <code>/var/log/drcm</code>. The DataReel System Monitor has a
+  cluster plug-in that shows DRCM clusters on its dashboard.</li>
+<li><strong>Upgrade:</strong> releases 1.42 and later talk to each other, so those
+  clusters can be upgraded one node at a time with standby. Release 1.42
+  changed the cluster protocol, so a cluster on 1.41 or older (for example
+  1.37) is upgraded with every node stopped, then upgraded, then started.
+  The read-only pre-flight check (<code>tools/drcm_preflight.sh</code>) tells, for
+  each node, what an upgrade will keep and replace.</li>
+</ul>
+</section>
+<section id="sec11">
+<h2>11. AI-assisted install, upgrade and support</h2>
+<p>DRCM includes an AI-assisted guide, <code>AGENTS.md</code> (with <code>GEMINI.md</code> and
+<code>CLAUDE.md</code>), that lets the site's own approved AI desktop or command line
+tools help its administrators install, set up, upgrade and troubleshoot
+DRCM.</p>
+<ul>
+<li><strong>Before you use any AI assistance, review all of your agency's or
+  company's AI usage policies, and get formal written approval from your
+  management team in the form of a business use case and justification.</strong></li>
+<li><strong>Use only approved enterprise AI models.</strong> An AI agent may process
+  potentially sensitive data such as host names, configuration files and
+  logs. Use only enterprise AI models that guarantee your internal
+  information will not be used to train public models. Public or free AI
+  tools, open source AI models and self-built AI models may expose your
+  information, depending on how they are hosted, configured and licensed;
+  use them only after a comprehensive review of the risks.</li>
+<li><strong>Human in the loop, never autonomous.</strong> The AI tool explains each step
+  and proposes the exact command; administrators run it or approve it, one
+  step and one node at a time. The guide works fully in advisory mode,
+  where the AI tool runs no commands at all.</li>
+<li>The entire risk of AI-assisted use rests with the user. Any mention of a
+  specific AI tool is a reference only, not an endorsement.</li>
+</ul>
+</section>
+<section id="sec12">
+<h2>12. Limits, stated plainly</h2>
+<ul>
+<li><strong>Root on a node owns the cluster.</strong> The cluster key is a file readable
+  by root; whoever has it can forge any cluster message. Protect root
+  access, and replace the key on every node if it may have leaked.</li>
+<li><strong>UDP is not encrypted.</strong> Use the TCP transport where cluster traffic
+  must stay confidential.</li>
+<li><strong>No hardware fencing.</strong> DRCM does not power off a failed node through a
+  management controller or a power switch. Split brain protection relies
+  on the witness, the isolation check and the takeover check (section 6);
+  a two-node cluster without any of them can run a service on both nodes
+  while the link between them is down.</li>
+<li><strong>Failover is not instant.</strong> A dead node is declared after
+  <code>dead_node_count</code> missed keep alives, then resources start in order;
+  clients see the outage for that time. Standby moves resources ahead of
+  planned work instead.</li>
+<li><strong>Applications must tolerate a restart elsewhere.</strong> DRCM moves the
+  address, the data and the service; it does not replicate memory or open
+  connections.</li>
+<li><strong>Replay window needs clocks.</strong> <code>replay_window_secs</code> assumes
+  synchronized clocks; leave it at 0 without chrony.</li>
+<li><strong>RHEL 8 is best effort,</strong> and from 1.49 needs EPEL for OpenSSL 3.5.</li>
+</ul>
+</section>
+<section id="sec13">
+<h2>13. Licensing</h2>
+<p>DRCM is free software under the GNU General Public License version 3. The
+bundled DataReel library files it uses are under the GNU Lesser General
+Public License version 3. Both are provided as is, without warranty; see
+the license files in the source code and the site's terms of use.</p>
+</section>
+<section id="sec14">
+<h2>14. References</h2>
+<ul>
+<li>Administrator guide: <a href="https://datareel.com/drcm/admin_guide.html">datareel.com/drcm/admin_guide.html</a> (also plain text)</li>
+<li>AI-assisted install, upgrade and support guide:
+  <a href="https://datareel.com/drcm/ai_assisted_guide.php">datareel.com/drcm/ai_assisted_guide.php</a> and <code>AGENTS.md</code></li>
+<li>Release notes: <code>CHANGELOG.md</code> in the source code</li>
+<li>Product page: <a href="https://datareel.com/info_drcm.php">datareel.com/info_drcm.php</a></li>
+<li>Downloads: <a href="https://datareel.com/downloads/drcm_downloads.php">datareel.com/downloads/drcm_downloads.php</a></li>
+</ul>
+</section>
+<section id="sec15">
+<h2>15. Reporting a security issue</h2>
+<p>Please report a suspected vulnerability privately from the
+<a href="https://datareel.com/contact.php">contact page</a>, with the DRCM version, the platform and the
+steps to reproduce it. Do not post it publicly until a fixed release is
+available.</p></section>
+<footer>DataReel Cluster Manager 1.48 white paper &middot; Copyright &copy; DataReel Software Development &middot; GNU General Public License.</footer>
+</main>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var KEY = "drcm-theme";
+  var label = document.getElementById("themeLabel");
+
+  function systemDark() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function current() {
+    var t = root.getAttribute("data-theme");
+    if (t === "light" || t === "dark") return t;
+    return systemDark() ? "dark" : "light";
+  }
+  function show() { label.textContent = current() === "dark" ? "Dark" : "Light"; }
+
+  var saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) { saved = null; }
+  if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+  show();
+
+  document.getElementById("themeToggle").addEventListener("click", function () {
+    var next = current() === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem(KEY, next); } catch (e) { /* storage blocked */ }
+    show();
+  });
+  if (window.matchMedia) {
+    try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", show); } catch (e) { /* old browsers */ }
+  }
+
+  // Mobile navigation drawer
+  var navBtn = document.getElementById("navToggle");
+  navBtn.addEventListener("click", function () {
+    var open = document.body.classList.toggle("nav-open");
+    navBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+
+  // Highlight the section in view
+  var links = document.querySelectorAll("nav.rail a");
+  links.forEach(function (a) {
+    a.addEventListener("click", function () {
+      document.body.classList.remove("nav-open");
+      navBtn.setAttribute("aria-expanded", "false");
+    });
+  });
+  if ("IntersectionObserver" in window) {
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          links.forEach(function (a) { a.classList.remove("active"); });
+          var a = byId[e.target.id];
+          if (a) a.classList.add("active");
+        }
+      });
+    }, { rootMargin: "-70px 0px -65% 0px" });
+    document.querySelectorAll("main section").forEach(function (s) { io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>

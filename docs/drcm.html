@@ -282,7 +282,7 @@ footer { color: var(--text-muted); font-size: 14px; padding-top: 8px; }
 <section id="overview">
   <h2>Overview and architecture</h2>
   <p>The DataReel Cluster Manager (DRCM) builds high availability Linux server clusters. It manages system resources (crontabs, floating IP addresses, system services, applications and file systems) and fails them over automatically when one or more servers fail.</p>
-  <p>DRCM supports many cluster nodes in a non-hierarchical arrangement. Resources are spread across the nodes, and each resource can have backup nodes. A typical cluster is two servers of equal capacity, one primary and one backup, but DRCM scales past two nodes and across data centers in the same or different locations. In virtualized data centers, clustering VMs that run on different bare metal hosts protects services from the loss of a host.</p>
+  <p>DRCM supports many cluster nodes in a non-hierarchical arrangement. Resources are spread across the nodes, and each resource can have backup nodes. A typical cluster is two servers of equal capacity, one primary and one backup, but DRCM scales past two nodes and across data centers in the same or different locations. A cluster can run entirely in the cloud, or as a hybrid of cloud servers and your own data centers (run local, fail over to the cloud; see <a href="#transports">transports</a>, <a href="#quorum">witness quorum</a> and <a href="#floating">floating IPs per platform</a>). In virtualized data centers, clustering VMs that run on different bare metal hosts protects services from the loss of a host.</p>
   <h3>How it is built</h3>
   <p>DRCM is a single C++ multithreaded daemon, <code>drcm_server</code>, built on the DataReel class library (threads, sockets, strings, logging). The bundled copy of the library in <code>include/</code> and <code>src/</code> is trimmed to the 16 components DRCM uses. Each node runs the same binary with the same <code>/etc/drcm</code> directory.</p>
   <div class="grid2">
@@ -874,8 +874,10 @@ export TEXTlist="555-555-5555@vtext.com"</code></pre>
     <li>Source code and downloads: <a href="https://datareel.com/downloads/drcm/">datareel.com/downloads/drcm</a></li>
     <li>Questions and bug reports: <a href="https://datareel.com/contact.php">datareel.com/contact.php</a></li>
     <li>Release notes: <code>CHANGELOG.md</code> in the source distribution.</li>
+    <li>Design and security white paper: <a href="https://datareel.com/drcm/drcm_white_paper.html">drcm_white_paper.html</a> (also <code>drcm_white_paper.txt</code>).</li>
+    <li>AI-assisted install, upgrade and support: <code>AGENTS.md</code> (<a href="https://datareel.com/drcm/ai_assisted_guide.php">datareel.com/drcm/ai_assisted_guide.php</a>). Before you use any AI assistance, review your agency's or company's AI usage policies and get formal written approval from your management team; use only approved enterprise AI models. Human in the loop, never autonomous; the risk of AI-assisted use rests with the user. Naming an AI tool is a reference only, not an endorsement.</li>
   </ul>
-  <footer>DataReel Cluster Manager 1.42 &middot; Copyright &copy; DataReel Software Development &middot; GNU General Public License.</footer>
+  <footer>DataReel Cluster Manager 1.48 &middot; Copyright &copy; DataReel Software Development &middot; GNU General Public License.</footer>
 </section>
 </main>
 </div>

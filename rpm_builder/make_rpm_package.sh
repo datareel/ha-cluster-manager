@@ -144,6 +144,17 @@ cp -fv ../COPYING ${Build}/usr/share/doc/drcm/COPYING
 chmod 644 ${Build}/usr/share/doc/drcm/COPYING
 cp -fv ../version.txt ${Build}/usr/share/doc/drcm/version.txt
 chmod 644 ${Build}/usr/share/doc/drcm/version.txt
+# Administrator guide, white paper, release notes and the AI-assisted guide
+# files (1.49). The same files are on datareel.com/drcm/.
+for f in docs/drcm.html docs/drcm.txt docs/drcm_white_paper.html docs/drcm_white_paper.txt \
+         CHANGELOG.md AGENTS.md GEMINI.md CLAUDE.md tools/drcm_preflight.sh; do
+    if [ ! -f ../${f} ]; then
+        echo "ERROR - Missing doc file ${f}"
+        exit 1
+    fi
+    cp -fv ../${f} ${Build}/usr/share/doc/drcm/$(basename ${f})
+    chmod 644 ${Build}/usr/share/doc/drcm/$(basename ${f})
+done
 mkdir -p ${Build}/usr/share/man/man1
 mkdir -p ${Build}/usr/share/man/man8
 gzip -c ../man/drcm_server.1 > ${Build}/usr/share/man/man1/drcm_server.1.gz

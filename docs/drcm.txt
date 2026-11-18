@@ -41,9 +41,11 @@ DRCM supports many cluster nodes in a non-hierarchical arrangement.
 Resources are spread across the nodes, and each resource can have backup
 nodes. A typical cluster is two servers of equal capacity, one primary
 and one backup, but DRCM scales past two nodes and across data centers
-in the same or different locations. In virtualized data centers,
-clustering VMs that run on different bare metal hosts protects services
-from the loss of a host.
+in the same or different locations. A cluster can run entirely in the
+cloud, or as a hybrid of cloud servers and your own data centers (run
+local, fail over to the cloud; see sections 7, 10 and 12). In
+virtualized data centers, clustering VMs that run on different bare
+metal hosts protects services from the loss of a host.
 
 How it is built:
 
@@ -1054,5 +1056,14 @@ Support:
 * Source code and downloads: datareel.com/downloads/drcm
 * Questions and bug reports: datareel.com/contact.php
 * Release notes: CHANGELOG.md in the source distribution.
+* Design and security white paper: drcm_white_paper.html and .txt
+  (datareel.com/drcm/drcm_white_paper.html).
+* AI-assisted install, upgrade and support: AGENTS.md
+  (datareel.com/drcm/ai_assisted_guide.php). Before you use any AI
+  assistance, review your agency's or company's AI usage policies and
+  get formal written approval from your management team; use only
+  approved enterprise AI models. Human in the loop, never autonomous;
+  the risk of AI-assisted use rests with the user. Naming an AI tool is
+  a reference only, not an endorsement.
 
 DataReel Cluster Manager 1.48, GNU General Public License.

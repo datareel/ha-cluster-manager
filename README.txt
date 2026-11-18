@@ -10,6 +10,9 @@ https://datareel.com/downloads/drcm/
 Contents:
 --------
 * Overview
+* Documentation
+* Post-quantum TLS (1.49)
+* AI-assisted install, upgrade and support
 * Documented Usage
 * Prerequisites
 * RPM Install
@@ -33,30 +36,67 @@ Contents:
 
 Overview:
 --------
-The DataReel cluster manager (DRCM) software is used to build high
-availability Linux server clusters. High availability clusters manage
-system resources with automatic fail over in event of one or more
-server failures. 
+Minimize downtime when a node fails or goes down for patching. The
+DataReel cluster manager (DRCM) builds high availability Linux clusters,
+where 2 or more compute nodes, servers or workstations, take over each
+other's services and applications. If a node goes down, or you put it in
+standby for routine security patching, the other nodes take over its
+resources automatically and hand them back when it returns, so your
+users keep working. DRCM has 10 years of proven reliability in
+production clusters on RHEL 6, RHEL 7, RHEL 8, RHEL 9 and RHEL 10.
 
-The DRCM project was designed to support multiple cluster nodes in a
-non-hierarchical arrangement. Cluster resources are distributed
-between the nodes with backup rolls assigned. The DRCM project
-requirements were based on the need to replace existing cluster
-software with multiple dependency issues and cluster software that did
-not scale well more than 2 cluster nodes. 
+A cluster can be servers or workstations in the same data center, or
+nodes in data centers in several geographic locations. It can run
+entirely in the cloud, or as a hybrid of cloud servers and your own data
+centers. Nodes are peers in a non-hierarchical arrangement: cluster
+resources (crontabs, floating IP addresses, services, applications and
+file systems) are spread across the nodes with backup roles assigned,
+and the cluster scales well beyond 2 nodes. Cluster traffic between
+sites runs over authenticated TCP + TLS, and split brain protection
+keeps a node that loses its internet link from fighting a remote peer
+for its resources.
 
-A  Linux server cluster is typically 2 servers with equal capacity,
-where one server provides primary services and the other server
-provides backup services. In the event of a primary server failure the
-secondary server automatically assumes all cluster resources. In data
-centers utilizing virtualization technology, services are distributed
-between many virtual machines (VMs). In a VM environment clustering
-multiple VM nodes running on multiple bare metal servers is a very
-effective way to manage services in the event of a bare metal server 
-failure.
+In virtualized data centers, clustering VMs that run on different bare
+metal hosts protects services from the loss of a host.
 
-The DRCM multiple node concept can scale between nodes in one or more
-data centers in the same or different geographical locations. 
+Documentation:
+-------------
+The RPM installs these in /usr/share/doc/drcm; the source code has them
+in docs/ and the top folder, and datareel.com/drcm/ publishes the same
+files:
+
+* drcm.html, drcm.txt: administrator guide (every setting and command)
+* drcm_white_paper.html, drcm_white_paper.txt: design and security white
+  paper (architecture, hybrid local and cloud clusters, split brain
+  protection, security, post-quantum readiness, limits)
+* AGENTS.md, GEMINI.md, CLAUDE.md: AI-assisted install, upgrade and
+  support guide (see below)
+* drcm_preflight.sh: read-only upgrade check for one node
+* CHANGELOG.md: release notes
+
+Post-quantum TLS (1.49):
+-----------------------
+With OpenSSL 3.5 or later, TCP + TLS clusters use the hybrid
+X25519MLKEM768 key exchange in TLS 1.3 (tls_groups, tls_pq_only).
+drcm_server --version prints the linked OpenSSL. RHEL 9 and 10 RPMs use
+the system OpenSSL 3.5; the RHEL 8 RPM uses OpenSSL 3.5 from EPEL
+(openssl3-libs). See the administrator guide, section 8.
+
+AI-assisted install, upgrade and support:
+----------------------------------------
+AGENTS.md lets your own approved AI desktop or command line tools assist
+your administrators. Before you use any AI assistance, review all of your
+agency's or company's AI usage policies, and get formal written approval
+from your management team in the form of a business use case and
+justification. Use only approved enterprise AI models that guarantee your
+internal information will not be used to train public models; public or
+free AI tools, open source AI models and self-built AI models may expose
+your information, depending on how they are hosted, configured and
+licensed. AI-assisted means human in the loop, never autonomous: the AI
+tool proposes each step, your administrators run or approve it. The
+entire risk of AI-assisted use rests with the user. Any mention of a
+specific AI tool is a reference only, not an endorsement. See
+https://datareel.com/drcm/ai_assisted_guide.php and the terms of use.
 
 Documented Usage:
 ----------------
