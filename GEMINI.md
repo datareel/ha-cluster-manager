@@ -1,5 +1,6 @@
-# DRCM: Gemini CLI context
+# DRCM: AI-assisted install, upgrade and support (Gemini CLI context)
 
-The instructions for AI agents are in AGENTS.md.
+Gemini CLI assists the administrators, who review and approve each step.
+The instructions are in AGENTS.md.
 
 @./AGENTS.md

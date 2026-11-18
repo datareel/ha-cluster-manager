@@ -1,9 +1,13 @@
-# DRCM (DataReel Cluster Manager): guide for AI agents
+# DRCM (DataReel Cluster Manager): AI-assisted install, upgrade and support
 
-This file tells an AI coding or operations agent (Gemini CLI, Claude Code,
-GitHub Copilot, Codex and others) how to work with DRCM: install it, set up
-a cluster, and upgrade old releases such as 1.37 to the current release,
-1.48. `GEMINI.md` and `CLAUDE.md` in this folder only import this file.
+This file is for AI-assisted work on DRCM: it tells an AI agent (Gemini
+CLI, Claude Code, GitHub Copilot, Codex and others) how to assist a
+site's own system administrators to install DRCM, set up a cluster,
+upgrade old releases such as 1.37 to the current release, 1.48, and
+troubleshoot. The agent assists; it does not replace the administrators
+or DataReel support. The administrators review and approve every step,
+and problems the agent cannot solve go to DataReel (section 7.4).
+`GEMINI.md` and `CLAUDE.md` in this folder only import this file.
 
 The full manual is `docs/drcm.txt` (also `docs/drcm.html` and
 https://datareel.com/drcm/admin_guide.html). This file points to its
@@ -127,7 +131,7 @@ Manual: sections 3 and 4 of `docs/drcm.txt`.
    Check `cm_stat` on every node: every node is up, each resource has one
    owner.
 
-## 5. Upgrading 1.37 (or any 1.41 or older) to 1.48
+## 5. AI-assisted upgrade from 1.37 (or any 1.41 or older) to 1.48
 
 ### 5.1 What changes, and what does not
 
@@ -268,7 +272,98 @@ nodes first. Remote standby (`-n"node"`) needs 1.47 on both nodes.
   `takeover_check` (CHANGELOG.md, the 1.43 entry; the manual
   does not cover them in detail yet).
 
-## 7. Report back
+## 7. AI-assisted troubleshooting and support
+
+Manual: sections 11 (running, stats and logs) and 16 (troubleshooting).
+Diagnose read-only first; change nothing until the person agrees on the
+cause and the fix (rule 2).
+
+### 7.1 Where to look
+
+| What | Command or file |
+| --- | --- |
+| Cluster view from this node | `drcm_server --client --command=cm_stat` (every node, its state, the resources and where they run) |
+| Can this node reach the others | `drcm_server --client --command=ping` (`-n"node"` for one node) |
+| Raw stats from every node | `drcm_server --client --command=rstats` |
+| Loaded configuration | `drcm_server --client --command=printcfg` |
+| Config file errors | `drcm_server --check-config` |
+| Server log | `/var/log/drcm/drcm.log`, `journalctl -u drcm_server` |
+| Resource logs | `/var/log/drcm/ipv4addr_resource.log` (floating IPs, IPv4 and IPv6), `service_resource.log`, `application_resource.log`, `filesystem_resource.log`, `crontab_resource.log` |
+| Service state | `systemctl status drcm_server` |
+| Whole-node summary | `tools/drcm_preflight.sh` (read-only) |
+
+Run the same read-only commands on every node and compare: most problems
+show up as two nodes disagreeing.
+
+### 7.2 Common problems
+
+- **The service does not start.** Read `systemctl status drcm_server` and
+  `journalctl -u drcm_server`, then `drcm_server --check-config`. Usual
+  causes: an ERROR in the config file, the host name not matching any
+  node in the config, a missing or unreadable auth key, `authkey.sha1`
+  not 40 hex characters, missing TLS files in TCP mode. After an upgrade
+  from 1.37, an old `/etc/systemd/system/drcm_server.service` that still
+  runs `/etc/rc.d/init.d/drcm_server` (5.3, step 4).
+- **Nodes see each other as dead, ping fails or frames are rejected.**
+  Compare `authkey.sha1` on every node (must be equal), the DRCM version on
+  every node (1.42 or later everywhere, or 1.41 or older everywhere), the
+  firewalld rules for the port from each peer (`firewall-cmd --list-all`),
+  `keep_alive_ip` and `bind_to_keep_alive_ip` in the config, and in TCP
+  mode the certificates (manual section 16). With `replay_window_secs`
+  set, check the clocks (`chronyc tracking`).
+- **A floating IP does not come up or does not move.** Read
+  `/var/log/drcm/ipv4addr_resource.log`. With the nmcli scripts the
+  NetworkManager connection name must equal the device name. On AWS check
+  the AWS CLI, the instance role and the allocation or route table id
+  (manual section 12). Running the resource script by hand is a change:
+  ask first.
+- **A service or application keeps stopping and starting.** Read
+  `service_resource.log` or `application_resource.log`: the check or ensure
+  script is failing, or the service fails on its own. Fix the service
+  first; do not raise check intervals or `dead_node_count` to hide it.
+- **No failover with quorum on.** The node cannot reach
+  `witness_endpoint`; check the witness's auth key and certificate.
+- **Very large logs.** `debug = 0` and a lower `log_level` in the config.
+
+### 7.3 Stop and escalate at once
+
+Do not try to fix these yourself. Report to the person straight away, with
+the summary in 7.4:
+
+- **Possible split brain:** `cm_stat` on two nodes shows the same resource
+  running on both, the same floating IP answers from two nodes, or the same
+  application runs on two nodes.
+- Nodes that cannot see each other while both hold resources.
+- Any sign of data loss or two writers on shared or replicated storage
+  (file system sync, NFS, CIFS, database sync).
+- Anything that would need stopping DRCM on more than one node, forcing a
+  standby (`--force`), changing the auth key, or turning off a safety
+  setting (rule 6).
+
+### 7.4 Support summary
+
+When a problem is not solved, give the person a summary they can send to
+their team or to DataReel (https://datareel.com/contact.php). AI-assisted
+support ends here: the people take it from this summary.
+
+1. DRCM version and OS on every node (`drcm_server --version`,
+   `/etc/os-release`), and whether the cluster uses UDP or TCP.
+2. The `tools/drcm_preflight.sh` output from every node involved.
+3. `cm_stat` from every node.
+4. The log lines around the problem from `drcm.log`, the resource log and
+   `journalctl -u drcm_server` (times included).
+5. What happened, when, what changed before it, and every command already
+   tried with its result.
+
+Remove host names, addresses and other site data from the summary when the
+person asks for that, and never include the auth keys, TLS private keys or
+passwords.
+
+DRCM is free software under the GNU General Public License, provided as
+is. Check every command an agent proposes before it runs; the person
+running the cluster is responsible for the changes made.
+
+## 8. Report back
 
 End every task with: the nodes touched, each command and its result, the
 pre-flight summaries, every WARN and what was decided, the `.rpmnew` and

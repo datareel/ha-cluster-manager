@@ -6,10 +6,13 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 ## [Unreleased]
 
 ### Added
-- `AGENTS.md`: guide for AI agents (Gemini CLI, Claude Code, Copilot and
-  others) to install DRCM, set up a cluster and upgrade old releases to
-  1.48, with safety rules (one node at a time, back up first, stop on a
-  failed check). `GEMINI.md` and `CLAUDE.md` import it.
+- `AGENTS.md`: AI-assisted install, upgrade and support. It tells an AI
+  agent (Gemini CLI, Claude Code, Copilot and others) how to assist a
+  site's administrators, who approve each step: install DRCM, set up a
+  cluster, upgrade old releases to 1.48, and troubleshoot, with safety
+  rules (one node at a time, back up first, stop on a failed check),
+  stop-and-escalate cases and a support summary for DataReel.
+  `GEMINI.md` and `CLAUDE.md` import it.
 - `tools/drcm_preflight.sh`: read-only upgrade check for one node (OS,
   installed package, unit files, config file checked with the new
   binary from the RPM, auth keys, edited package files and what the
