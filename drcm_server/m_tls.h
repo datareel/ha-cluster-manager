@@ -37,6 +37,24 @@ enum cm_tls_status {
 // "sha256" prefix) to lowercase hex with no separators.
 void cm_tls_normalize_fingerprint(const char *in, char *out, size_t out_n);
 
+// Post-quantum key exchange (1.49). OpenSSL 3.5 and later offer the hybrid
+// ML-KEM group X25519MLKEM768 for TLS 1.3. The default group list puts it
+// first and keeps X25519 for peers without it; older OpenSSL builds use
+// X25519 only. tls_pq_only = 1 allows X25519MLKEM768 alone and forces TLS
+// 1.3 (both ends need OpenSSL 3.5+).
+#define CM_TLS_PQ_GROUP        "X25519MLKEM768"
+#define CM_TLS_GROUPS_DEFAULT  "X25519MLKEM768:X25519"
+#define CM_TLS_GROUPS_CLASSIC  "X25519"
+
+// 1 if the linked OpenSSL can use the ML-KEM hybrid group
+int cm_tls_has_mlkem();
+// The linked OpenSSL version text, e.g. "OpenSSL 3.5.9 30 Sep 2026"
+const char *cm_tls_library_version();
+// The group list to use for a configured value (empty = default) and mode.
+// Returns 0 and fills out, or -1 with a reason in err.
+int cm_tls_resolve_groups(const char *configured, int pq_only,
+                          char *out, size_t out_n, char *err, size_t err_n);
+
 // One TLS context, shared by all connections of the same role.
 // optional_peer_fingerprint, when non-NULL, is an extra check beyond CA
 // verification: the peer cert's SHA-256 fingerprint must equal it
@@ -49,7 +67,8 @@ struct CMTlsContext {
                      const char *ca_file,
                      const char *cert_file,
                      const char *key_file,
-                     int min_tls_minor /* 2 or 3 */);
+                     int min_tls_minor /* 2 or 3 */,
+                     const char *groups = 0 /* resolved list, 0 = library default */);
   void free_ctx();
 
   const char *last_error() const { return err_; }
@@ -81,12 +100,18 @@ struct CMTlsConn {
   const char *peer_subject() const { return peer_subject_; }
   // SHA-256 of the peer certificate, lowercase hex, no separators
   const char *peer_fingerprint() const { return peer_fp_; }
+  // Negotiated protocol (e.g. "TLSv1.3") and key exchange group (e.g.
+  // "X25519MLKEM768"), set after a successful start()
+  const char *tls_version() const { return tls_version_; }
+  const char *tls_group() const { return tls_group_; }
 
   SSL *ssl;
   int  fd;
   char err_[256];
   char peer_subject_[256];
   char peer_fp_[2 * 64 + 1];
+  char tls_version_[32];
+  char tls_group_[64];
 };
 
 #endif // __DRCM_TLS_HPP__

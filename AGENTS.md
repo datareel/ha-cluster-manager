@@ -326,6 +326,14 @@ nodes first. Remote standby (`-n"node"`) needs 1.47 on both nodes.
 
 ## 6. After the upgrade (separate changes, each with its own OK)
 
+- Post-quantum TLS (1.49 and later, TCP transport only): check
+  `drcm_server --version` on every node shows OpenSSL 3.5 or later with
+  the post-quantum key exchange, then look for "key exchange
+  X25519MLKEM768 (post-quantum hybrid)" lines in `/var/log/drcm/drcm.log`.
+  Once every node runs 1.49, propose `tls_min_version = 1.3` and, if the
+  site wants it, `tls_pq_only = 1` (manual section 8, Post-quantum key
+  exchange). The cluster authkey HMAC is not affected by quantum
+  computers; nothing to change there.
 - Floating IPs: move from `ipv4addr.sh` to `ipv4addr_nmcli.sh` (manual
   sections 6 and 12).
 - TCP + TLS and witness quorum: `python3 tools/migrate_cfg.py --tcp ...

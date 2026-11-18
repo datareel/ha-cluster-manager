@@ -36,9 +36,10 @@ Help functions for Datareel cluster manager.
 
 #include "drcm_server.h"
 #include "m_help.h"
+#include "m_tls.h"
 
 // Version number, program  and publisher info
-const char *VersionString = "1.48";
+const char *VersionString = "1.49";
 const char *ProgramDescription = "Datareel Cluster Manager";
 const char *ProducedBy = "http://datareel.com";
 
@@ -93,6 +94,9 @@ void VersionMessage()
   cout << ProgramDescription << " version " << VersionString  << "\n" 
 	      << flush;
   cout << "Produced by: " << ProducedBy << "\n" << flush;
+  cout << "Linked with: " << cm_tls_library_version()
+       << (cm_tls_has_mlkem() ? " (post-quantum TLS key exchange: X25519MLKEM768)"
+                              : " (no post-quantum TLS key exchange)") << "\n" << flush;
   cout << "\n" << flush;
 }
 

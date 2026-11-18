@@ -149,6 +149,11 @@ struct CMTlsConn;
 // error. The caller authenticates the frame with cm_parse_frame().
 int cm_tls_read_frame(CMTlsConn &conn, unsigned char *buf, int cap);
 
+// Log the negotiated TLS version and key exchange group for a peer, once,
+// and again only when it changes (keep alives reconnect every few seconds).
+// direction is "to" (outbound) or "from" (inbound).
+void cm_tls_note_session(const char *direction, const char *peer, const CMTlsConn &conn);
+
 // Transport-aware cluster request/response. Builds an authenticated v2
 // frame for cmd (with optional payload), sends it over UDP or TCP+TLS
 // according to servercfg->cluster_transport, and returns the peer's

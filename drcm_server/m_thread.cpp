@@ -338,7 +338,8 @@ void *CM_TCP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
   int minor = (servercfg->tls_min_version >= 3) ? 3 : 2;
   if(tctx.init(CM_TLS_SERVER, servercfg->tls_ca_file.c_str(),
                servercfg->tls_cert_file.c_str(),
-               servercfg->tls_key_file.c_str(), minor) != CM_TLS_OK) {
+               servercfg->tls_key_file.c_str(), minor,
+               servercfg->tls_groups_resolved.c_str()) != CM_TLS_OK) {
     message << clear << "ERROR - TCP server TLS init failed: " << tctx.last_error();
     LogMessage(message.c_str());
     Close();
@@ -381,6 +382,8 @@ void *CM_TCP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
       Close(cfd);
       continue;
     }
+
+    cm_tls_note_session("from", client_name, conn);
 
     int rv = cm_tls_read_frame(conn, rxbuf, sizeof(rxbuf));
     if(rv <= 0) { conn.shutdown_conn(); Close(cfd); continue; }

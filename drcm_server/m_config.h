@@ -290,6 +290,9 @@ struct CMconfig {
   gxString tls_cert_file;         // this node's certificate
   gxString tls_key_file;          // this node's private key
   int tls_min_version;            // 2 for TLS 1.2 (default), 3 for TLS 1.3
+  gxString tls_groups;            // TLS key exchange groups as configured (1.49)
+  int tls_pq_only;                // 1 = X25519MLKEM768 only, TLS 1.3 (1.49)
+  gxString tls_groups_resolved;   // the group list in use (set by the loader)
   int replay_window_secs;         // timestamp window; 0 = seq-only (default)
   gxString witness_endpoint;      // optional quorum witness host:port
   int quorum_required;            // 1 = need witness agreement before takeover

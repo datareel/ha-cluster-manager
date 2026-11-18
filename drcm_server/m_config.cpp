@@ -41,6 +41,7 @@ Program config functions for Datareel cluster manager.
 #include "drcm_server.h"
 #include "m_config.h"
 #include "m_standby.h"
+#include "m_tls.h"
 
 CMconfig ServerConfigSruct;
 CMconfig *servercfg = &ServerConfigSruct;
@@ -182,6 +183,7 @@ CMconfig::CMconfig()
   // floor is 1.2, anti-replay is sequence-only (no clock sync needed).
   cluster_transport = CM_TRANSPORT_UDP;
   tls_min_version = 2;
+  tls_pq_only = 0;
   replay_window_secs = 0;
   quorum_required = 0;
   isolation_check_count = 15;
@@ -693,7 +695,7 @@ const char *cfg_server_keys[] = {
   "bash_shell", "bash_rc_file", // Used by the resource scripts
   // TCP/TLS mode (Phase 4)
   "cluster_transport", "tls_ca_file", "tls_cert_file", "tls_key_file",
-  "tls_min_version", "replay_window_secs", "witness_endpoint",
+  "tls_min_version", "tls_groups", "tls_pq_only", "replay_window_secs", "witness_endpoint",
   "quorum_required",
   // Split brain protection
   "isolation_check", "isolation_check_count", "isolation_recover_secs",
@@ -1132,6 +1134,17 @@ int LoadOrBuildConfigFile()
 	  else if(vbuf == "1.3" || vbuf == "13") servercfg->tls_min_version = 3;
 	  else {
 	    NT_print("Config file has bad tls_min_version value (use 1.2 or 1.3)");
+	    error_level = 1;
+	  }
+	}
+	if(cfgkey == "tls_groups") {
+	  servercfg->tls_groups = CfgGetEqualToString(ptr->data);
+	}
+	if(cfgkey == "tls_pq_only") {
+	  servercfg->tls_pq_only = CfgGetEqualToParm(ptr->data);
+	  if(servercfg->tls_pq_only != 0 && servercfg->tls_pq_only != 1) {
+	    NT_print("Config file has bad tls_pq_only value (use 0 or 1)");
+	    servercfg->tls_pq_only = 0;
 	    error_level = 1;
 	  }
 	}
@@ -1699,6 +1712,25 @@ int LoadOrBuildConfigFile()
       else if(stat(tls_files[ti], &tst) != 0) {
 	NT_print("ERROR - TLS file not found", tls_files[ti]);
 	error_level = 1;
+      }
+    }
+    // Key exchange groups (1.49): the ML-KEM hybrid first when OpenSSL
+    // has it. tls_pq_only needs OpenSSL 3.5+ and forces TLS 1.3.
+    {
+      char gbuf[256], gerr[256];
+      if(cm_tls_resolve_groups(servercfg->tls_groups.c_str(), servercfg->tls_pq_only,
+                               gbuf, sizeof(gbuf), gerr, sizeof(gerr)) != 0) {
+	NT_print("ERROR -", gerr);
+	error_level = 1;
+      }
+      else {
+	servercfg->tls_groups_resolved = gbuf;
+	if(servercfg->tls_pq_only) servercfg->tls_min_version = 3;
+	NT_print("TLS library", cm_tls_library_version());
+	NT_print("TLS key exchange groups", gbuf);
+	if(!cm_tls_has_mlkem()) {
+	  NT_print("INFO - This OpenSSL has no post-quantum key exchange (X25519MLKEM768 needs OpenSSL 3.5 or later)");
+	}
       }
     }
     if(servercfg->quorum_required && servercfg->witness_endpoint.is_null()) {

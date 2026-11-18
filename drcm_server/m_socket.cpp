@@ -37,6 +37,9 @@ Extra socket functions for Datareel cluster manager.
 #include <errno.h>
 #include <time.h>
 #include <sys/time.h>
+#include <pthread.h>
+#include <map>
+#include <string>
 #include "m_socket.h"
 #include "m_standby.h"
 #include "m_tls.h"
@@ -122,11 +125,34 @@ static CMTlsContext *cm_client_tls_ctx()
     int minor = (servercfg->tls_min_version >= 3) ? 3 : 2;
     if(ctx.init(CM_TLS_CLIENT, servercfg->tls_ca_file.c_str(),
                 servercfg->tls_cert_file.c_str(),
-                servercfg->tls_key_file.c_str(), minor) == CM_TLS_OK) {
+                servercfg->tls_key_file.c_str(), minor,
+                servercfg->tls_groups_resolved.c_str()) == CM_TLS_OK) {
       ok = 1;
     }
   }
   return ok ? &ctx : 0;
+}
+
+void cm_tls_note_session(const char *direction, const char *peer, const CMTlsConn &conn)
+{
+  static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
+  static std::map<std::string, std::string> seen;
+  std::string key = std::string(direction) + " " + (peer ? peer : "?");
+  std::string val = std::string(conn.tls_version()) + " " + conn.tls_group();
+  int changed = 0;
+  pthread_mutex_lock(&mu);
+  std::map<std::string, std::string>::iterator it = seen.find(key);
+  if(it == seen.end() || it->second != val) { seen[key] = val; changed = 1; }
+  pthread_mutex_unlock(&mu);
+  if(!changed) return;
+
+  gxString message;
+  message << clear << "TLS " << direction << " " << (peer ? peer : "?") << ": "
+	  << conn.tls_version() << ", key exchange " << conn.tls_group();
+  if(strstr(conn.tls_group(), "MLKEM")) message << " (post-quantum hybrid)";
+  else if(cm_tls_has_mlkem()) message << " (classic: the peer did not offer ML-KEM)";
+  else message << " (classic: this OpenSSL has no ML-KEM)";
+  LogMessage(message.c_str());
 }
 
 // Read exactly one v2 frame from a TLS connection into buf (capacity cap).
@@ -186,6 +212,7 @@ static int cm_tcp_request(CMnode *node, const unsigned char *frame, int frame_le
     sock.Close();
     return 1;
   }
+  cm_tls_note_session("to", node->nodename.c_str(), conn);
   int rc = 1;
   if(conn.write_full(frame, frame_len) == CM_TLS_OK) {
     int n = cm_tls_read_frame(conn, reply_buf, reply_cap);

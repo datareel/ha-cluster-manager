@@ -5,7 +5,25 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+Planned as 1.49: the bug fixes and security updates from 1.48 installs
+and upgrades, and the items below.
+
 ### Added
+- Post-quantum TLS key exchange. New `tls_groups` setting, default
+  `X25519MLKEM768:X25519` when the linked OpenSSL has ML-KEM (3.5 and
+  later) and `X25519` otherwise; `--check-config` refuses a group the
+  linked OpenSSL does not have. `tls_pq_only = 1` allows only
+  `X25519MLKEM768` and forces TLS 1.3. Recommended once every node runs
+  1.49: `tls_min_version = 1.3`.
+- The log shows each TCP peer's TLS version and key exchange group the
+  first time it is seen and when it changes ("post-quantum hybrid" or
+  "classic").
+- `drcm_server --version` prints the linked OpenSSL version and whether
+  it has the post-quantum key exchange.
+- Build: `make OPENSSL_PC=openssl3` (pkg-config, with an rpath) or
+  `make OPENSSL_PREFIX=/path [OPENSSL_STATIC=1]` builds against an
+  OpenSSL other than the system one, for the RHEL 8 build on OpenSSL 3.5.
+  RHEL 9 and 10 builds are unchanged.
 - `AGENTS.md`: AI-assisted install, upgrade and support. It tells an AI
   agent (Gemini CLI, Claude Code, Copilot and others) how to assist a
   site's administrators, who approve each step: install DRCM, set up a

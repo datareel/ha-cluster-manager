@@ -441,7 +441,9 @@ Restart=on-failure</code></pre>
       <tr><td><code>tls_ca_file</code></td><td></td><td>Cluster CA certificate (PEM) used to verify peers. Required for <code>tcp</code>.</td></tr>
       <tr><td><code>tls_cert_file</code></td><td></td><td>This node's certificate (PEM), signed by the cluster CA. Required for <code>tcp</code>.</td></tr>
       <tr><td><code>tls_key_file</code></td><td></td><td>This node's private key (PEM). Required for <code>tcp</code>. Keep it mode 600.</td></tr>
-      <tr><td><code>tls_min_version</code></td><td>1.2</td><td>Lowest TLS version accepted: <code>1.2</code> or <code>1.3</code>.</td></tr>
+      <tr><td><code>tls_min_version</code></td><td>1.2</td><td>Lowest TLS version accepted: <code>1.2</code> or <code>1.3</code>. Set <code>1.3</code> once every node runs 1.49 or later (see <a href="#post-quantum">Post-quantum key exchange</a>).</td></tr>
+      <tr><td><code>tls_groups</code></td><td><code>X25519MLKEM768:X25519</code> (OpenSSL 3.5+), <code>X25519</code> (older)</td><td>TLS key exchange groups in order of preference (OpenSSL group list syntax). <code>X25519MLKEM768</code> is the post-quantum hybrid (ML-KEM-768 with X25519). <code>--check-config</code> refuses a group the linked OpenSSL does not have. (1.49)</td></tr>
+      <tr><td><code>tls_pq_only</code></td><td>0</td><td>1 = allow only <code>X25519MLKEM768</code> and require TLS 1.3. Every node needs 1.49 or later built with OpenSSL 3.5 or later. (1.49)</td></tr>
       <tr><td><code>replay_window_secs</code></td><td>0</td><td>0 = nonce and sequence checks only, no clock needed. A positive value also rejects frames whose timestamp is more than that many seconds from local time; use only with synchronized clocks (chrony).</td></tr>
       <tr><td><code>quorum_required</code></td><td>0</td><td>1 = a node may take over a dead peer's resources only if it can reach the witness.</td></tr>
       <tr><td><code>witness_endpoint</code></td><td></td><td>Witness host, or <code>host:port</code>. The witness is contacted on the cluster's standard port, so only the host part is used. Required when <code>quorum_required = 1</code>.</td></tr>
@@ -583,6 +585,14 @@ ldm, ldm:users, ldmadmin start, ldmadmin stop, if [ -f ~/util/ldm_ensure.sh ]; t
     <li>TLS 1.2 is the floor (<code>tls_min_version = 1.3</code> raises it).</li>
     <li>Mutual authentication: both ends present a certificate signed by the cluster CA and verify the peer against <code>tls_ca_file</code>. The handshake fails closed when verification fails.</li>
     <li>Optional pinning with <code>tls_peer_fingerprint</code> rejects any certificate other than the pinned one.</li>
+  </ul>
+  <h3 id="post-quantum">Post-quantum key exchange (1.49)</h3>
+  <ul>
+    <li>With OpenSSL 3.5 or later, TLS 1.3 connections use the hybrid <code>X25519MLKEM768</code> key exchange (ML-KEM-768 with X25519), so recorded cluster traffic cannot be decrypted later with a quantum computer. It is the first entry of the default <code>tls_groups</code>; X25519 stays as the fallback for peers without ML-KEM.</li>
+    <li><code>drcm_server --version</code> prints the linked OpenSSL. RHEL 9 and 10 RPMs use the system OpenSSL 3.5; the RHEL 8 RPM is built with OpenSSL 3.5 from 1.49 on.</li>
+    <li>The log shows the TLS version and key exchange of each peer when it is first seen and when it changes, for example <code>TLS to cmnode2: TLSv1.3, key exchange X25519MLKEM768 (post-quantum hybrid)</code>. A "classic" note means a peer without ML-KEM.</li>
+    <li>For full protection set <code>tls_min_version = 1.3</code> once every node runs 1.49 (TLS 1.2 has no post-quantum key exchange), and <code>tls_pq_only = 1</code> to refuse anything else.</li>
+    <li>Not affected by quantum computers: the frame HMAC-SHA256 with the 2048-byte shared authkey (symmetric). The node certificates (RSA or ECDSA) authenticate live handshakes only; recorded traffic does not help forge them. UDP frames are authenticated but not encrypted; use the TCP transport where cluster traffic must stay confidential.</li>
     <li>Tested against a live server: plain TCP, no client certificate and a certificate from another CA are refused at the handshake, and a client with a valid cluster certificate still cannot forge a command because the HMAC check fails.</li>
   </ul>
   <h3>Hardening</h3>
