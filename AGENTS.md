@@ -37,6 +37,10 @@ compliance with those policies and that approval.
 - The entire risk of AI-assisted use rests with the user. DataReel cannot
   be held accountable for actions taken, commands run or other outcomes of
   AI assistance (see https://datareel.com/terms.php).
+- **No endorsement.** Any mention of a specific AI tool, model or product
+  in this guide, such as Gemini, Gemini CLI, Claude Code or GitHub Copilot,
+  is a reference only. It is not an endorsement or a recommendation to use
+  that product. Product names are trademarks of their respective owners.
 
 **For the agent:** at the start of a session, ask the person to confirm
 that this AI-assisted use is approved under their organization's AI usage

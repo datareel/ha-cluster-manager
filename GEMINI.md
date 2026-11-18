@@ -4,5 +4,7 @@ Before any AI assistance: written management approval under your agency or compa
 AI usage policy, and approved enterprise AI models only (see "Before you use AI
 assistance" in AGENTS.md). Gemini CLI assists the administrators, who review and
 approve each step. Nothing runs autonomously: do not use --yolo or auto-accept.
+Naming Gemini CLI here is a reference only, not an endorsement; product names are
+trademarks of their respective owners.
 
 @./AGENTS.md
