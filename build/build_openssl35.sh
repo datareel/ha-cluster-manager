@@ -23,6 +23,7 @@ WORK=${WORK:-$(mktemp -d /tmp/openssl35_build.XXXXXX)}
 TARBALL=openssl-${OSSL_VERSION}.tar.gz
 URL=https://github.com/openssl/openssl/releases/download/openssl-${OSSL_VERSION}/${TARBALL}
 
+mkdir -p "${WORK}"
 cd "${WORK}"
 if [ ! -f "${TARBALL}" ]; then
     echo "Downloading ${URL}"
