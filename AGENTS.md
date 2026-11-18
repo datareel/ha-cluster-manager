@@ -15,6 +15,34 @@ https://datareel.com/drcm/admin_guide.html). This file points to its
 sections instead of repeating them. When this file and the manual
 disagree, the manual and the code win: say so to the person you work for.
 
+## Before you use AI assistance
+
+**Review all of your agency's or company's AI usage policies, and get formal
+written approval from your management team, in the form of a business use
+case and justification, before you use any AI assistance with DRCM.** AI
+desktops and command line tools may be used with this guide only in strict
+compliance with those policies and that approval.
+
+- **Use only approved enterprise AI models.** An AI agent working on a
+  cluster may process potentially sensitive data: host names, addresses,
+  configuration files, logs and command output. Use only your agency's or
+  company's enterprise AI models that have built-in safeguards against
+  disclosing information and that guarantee your internal information will
+  not be used to train public models.
+- **Warning: public or free AI tools, open source AI models and self-built
+  AI models** may expose your information to public learning models or to
+  other parties, depending on how the model is hosted, configured and
+  licensed. Use them only after a comprehensive review of what information
+  might be exposed and what the potential risks are.
+- The entire risk of AI-assisted use rests with the user. DataReel cannot
+  be held accountable for actions taken, commands run or other outcomes of
+  AI assistance (see https://datareel.com/terms.php).
+
+**For the agent:** at the start of a session, ask the person to confirm
+that this AI-assisted use is approved under their organization's AI usage
+policy and that you are an approved enterprise AI model. If they cannot
+confirm it, stop and do not ask for or read any cluster data.
+
 ## 0. Human in the loop: the agent never acts on its own
 
 AI-assisted means the agent assists a person; it never acts
