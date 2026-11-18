@@ -5,6 +5,23 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+## [1.48] - 2026-11-18
+
+Packaging fix only. The program is the same as 1.47 apart from its
+version number, and 1.48 works with every node 1.47 works with.
+
+### Fixed
+- The RPM spec files put the architecture in the Release tag
+  (`Release: 1.el10.x86_64`), so rpmbuild added it a second time and
+  the packages were named `drcm_server-1.47-1.el10.x86_64.x86_64.rpm`.
+  Release is now `1.el8`, `1.el9` and `1.el10`, and the packages are
+  named `drcm_server-1.48-1.el10.x86_64.rpm`. The README and the
+  administrator guide show the new names.
+
+The fix ships as a new version because the 1.47 RPMs (Release
+`1.elN.x86_64`) sort above a rebuilt 1.47 with the new Release, so
+`dnf` would not upgrade to it. `dnf` upgrades 1.47 to 1.48.
+
 ## [1.47] - 2026-11-17
 
 Only the target of a remote standby needs 1.47 (and the node the

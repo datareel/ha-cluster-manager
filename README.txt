@@ -1,4 +1,4 @@
-DataReel Cluster Manager (DRCM) 1.47 Readme File
+DataReel Cluster Manager (DRCM) 1.48 Readme File
 Copyright (c) 2024 DataReel Software Development
 
 Online docs:
@@ -94,7 +94,7 @@ Prebuilt RPMs for RHEL 8, 9 and 10 are on the DRCM downloads page:
 
 https://datareel.com/downloads/drcm/
 
-$ sudo dnf -y install ./drcm_server-<version>-1.el9.x86_64.x86_64.rpm
+$ sudo dnf -y install ./drcm_server-<version>-1.el9.x86_64.rpm
 
 System administrators, follow the instructions below to build an RPM
 for distribution:
@@ -110,17 +110,17 @@ The build needs gcc-c++, make, rpm-build and openssl-devel.
 RHEL 10:
 
 $ ./make_rhel10_rpm.sh
-$ sudo dnf -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-<version>-1.el10.x86_64.x86_64.rpm
+$ sudo dnf -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-<version>-1.el10.x86_64.rpm
 
 RHEL 9:
 
 $ ./make_rhel9_rpm.sh
-$ sudo dnf -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-<version>-1.el9.x86_64.x86_64.rpm
+$ sudo dnf -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-<version>-1.el9.x86_64.rpm
 
 RHEL 8:
 
 $ ./make_rhel8_rpm.sh
-$ sudo dnf -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-<version>-1.el8.x86_64.x86_64.rpm
+$ sudo dnf -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-<version>-1.el8.x86_64.rpm
 
 RHEL 6 and 7 are no longer supported; 1.37 was the last release for
 them.
