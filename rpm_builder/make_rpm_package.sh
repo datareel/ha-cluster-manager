@@ -211,7 +211,9 @@ fi
 tar cfz ${HOME}/rpmbuild/BUILD/drcm_server.tar.gz *
 
 cd ${BUILDDIR_tmp}/rpmbuild/SPECS
-rpmbuild -ba --buildroot=${BUILDDIR_tmp}/rpmbuild/BUILDROOT drcm.spec
+# A fixed build host name, so the build machine's own host name never goes
+# into the RPM header (rpm -qi shows Build Host)
+rpmbuild -ba --define "_buildhost build.datareel.com" --buildroot=${BUILDDIR_tmp}/rpmbuild/BUILDROOT drcm.spec
 
 rm -f ${HOME}/rpmbuild/BUILD/drcm_server.tar.gz
 rm -rf ${BUILDDIR_tmp}
