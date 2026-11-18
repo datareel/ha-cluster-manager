@@ -1,6 +1,6 @@
 BuildArch: x86_64
 Name: drcm_server
-Version: 1.48        
+Version: 1.49        
 Release: 1.el8
 Summary: Datareel Cluster Manager RPM        
 Group: System Environment/Daemons
@@ -15,6 +15,8 @@ Requires: libgcc_s.so.1()(64bit)
 Requires: libc.so.6()(64bit)
 Requires: ld-linux-x86-64.so.2()(64bit)
 Requires: systemd
+# OpenSSL 3.5 from EPEL (installs next to the system OpenSSL 1.1.1)
+Requires: openssl3-libs >= 3.5
 Requires: /bin/sh  
 Requires: /bin/bash
 
@@ -122,6 +124,11 @@ if [ $1 -ge 1 ] ; then
 fi
 
 %changelog
+* Wed Nov 18 2026 Datareel <datareel.com>
+- Release 1.49: post-quantum TLS key exchange (tls_groups, default
+  X25519MLKEM768:X25519 with OpenSSL 3.5, tls_pq_only), negotiated
+  group logged per peer, OpenSSL version in --version; built with OpenSSL 3.5 from EPEL (openssl3)
+
 * Wed Nov 18 2026 Datareel <datareel.com>
 - Release 1.48: RPM Release tag no longer repeats the architecture
   (file names were drcm_server-<version>-1.elN.x86_64.x86_64.rpm);

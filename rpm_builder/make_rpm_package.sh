@@ -53,9 +53,33 @@ fi
 
 source ../../env/gnu_env.sh
 cd ../drcm_server
+
+# RHEL 8's system OpenSSL is 1.1.1. From 1.49 the RHEL 8 RPM is built with
+# OpenSSL 3.5 from EPEL (openssl3-devel, pkg-config name openssl3). Override
+# with DRCM_OPENSSL_MAKE_ARGS, for example "OPENSSL_PREFIX=/opt/openssl-3.5
+# OPENSSL_STATIC=1" for a static build.
+OSSL_ARGS=""
+if [ "${OS}" == "rhel8" ]; then
+    OSSL_ARGS="${DRCM_OPENSSL_MAKE_ARGS:-OPENSSL_PC=openssl3}"
+fi
 make clean_lib
 make clean
-make
+make ${OSSL_ARGS}
+
+# The binary must use OpenSSL 3.5 or later (post-quantum TLS key exchange)
+if [ ! -x drcm_server ]; then
+    echo "ERROR - drcm_server was not built"
+    exit 1
+fi
+if readelf -d drcm_server | grep -q 'libssl.so.1'; then
+    echo "ERROR - drcm_server links OpenSSL 1.x; RHEL 8 needs openssl3-devel (EPEL) or DRCM_OPENSSL_MAKE_ARGS"
+    exit 1
+fi
+OSSL_VER=$(./drcm_server --version | sed -n 's/^Linked with: OpenSSL \([0-9][0-9.]*\).*/\1/p')
+case "${OSSL_VER}" in
+    3.[5-9]*|3.[1-9][0-9]*|[4-9].*) echo "drcm_server is linked with OpenSSL ${OSSL_VER}" ;;
+    *) echo "ERROR - drcm_server is linked with OpenSSL '${OSSL_VER}', 3.5 or later is required"; exit 1 ;;
+esac
 
 mkdir -p ${Build}/etc/drcm
 chmod 755 ${Build}/etc/drcm
