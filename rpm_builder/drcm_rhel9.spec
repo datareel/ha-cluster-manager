@@ -110,7 +110,8 @@ tar xvf drcm_server.tar.gz -C $RPM_BUILD_ROOT
 %post -p /bin/sh
 
 # The other RHEL 8 build (drcm_server / drcm_server-openssl35) installed in
-# the same transaction is a "dnf swap": leave the service as it is
+# the same transaction is a swap (dnf install --allowerasing or dnf swap):
+# leave the service as it is
 drcm_other_build() { rpm -q drcm_server drcm_server-openssl35 2>/dev/null | grep -v -e 'not installed' -e "^%{name}-%{version}-%{release}" | grep -q . ; }
 if [ $1 -eq 1 ] ; then 
     # Initial installation 

@@ -57,7 +57,8 @@ upgrade every node, then start them (see AGENTS.md section 5).
   upgrade` from 1.37 or 1.48 lands. `drcm_server-openssl35` has OpenSSL
   3.5.9 built in statically, with the post-quantum key exchange, for
   hosts not in FIPS mode; it provides and conflicts with `drcm_server`,
-  and `dnf swap` moves a node between the two, keeping the configuration,
+  and `dnf install --allowerasing` with the other RPM file (or `dnf
+  swap` from a repository) moves a node between the two, keeping the configuration,
   keys and service state. RHEL 9 and 10 RPMs use the system OpenSSL 3.5
   as before.
 - The RPMs install the administrator guide (`drcm.html`, `drcm.txt`),

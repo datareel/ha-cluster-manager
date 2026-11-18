@@ -125,7 +125,9 @@ On RHEL 8 there are two 1.49 packages; install one of them:
                          not a validated module). DataReel re-releases it for
                          OpenSSL 3.5 security fixes.
 Switch between them with DRCM stopped:
-  dnf swap drcm_server drcm_server-openssl35    (and back the other way)
+  dnf install --allowerasing ./drcm_server-openssl35-1.49-1.el8.x86_64.rpm
+  dnf install --allowerasing ./drcm_server-1.49-1.el8.x86_64.rpm    (back)
+  (from a repository: dnf swap drcm_server drcm_server-openssl35)
 The configuration, keys and service state are kept.
 
 See the administrator guide, section 8.

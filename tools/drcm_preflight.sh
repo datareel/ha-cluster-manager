@@ -56,7 +56,9 @@ if [ -x $BIN ]; then
 else
     fail "no $BIN on this node"
 fi
-if PKG=$(rpm -q drcm_server 2>/dev/null); then
+PKG=""
+PKGNAME=$(rpm -q --whatprovides drcm_server --qf '%{NAME}\n' 2>/dev/null | head -1)
+if [ -n "$PKGNAME" ] && PKG=$(rpm -q "$PKGNAME" 2>/dev/null); then
     info "installed package: $PKG"
     OWNER=$(rpm -qf $BIN 2>/dev/null)
     [ "$OWNER" == "$PKG" ] && ok "$BIN belongs to $PKG" || warn "$BIN is not the packaged file (rpm -qf: ${OWNER:-none}); it was replaced by hand"
@@ -71,7 +73,7 @@ for f in $OLDUNIT $INITSCRIPT; do
     if [ -e $f ]; then
         o=$(rpm -qf $f 2>/dev/null)
         if [ -n "$o" ] && [ "${o#*not owned}" == "$o" ]; then
-            if rpm -V drcm_server 2>/dev/null | grep -q " $f\$"; then
+            if rpm -V "$PKGNAME" 2>/dev/null | grep -q " $f\$"; then
                 warn "$f (from $o) was edited: the upgrade keeps it as $f.rpmsave; check nothing else in /etc/systemd/system overrides the new unit"
             else
                 ok "$f belongs to $o and is unedited: the upgrade removes it (1.48 uses /usr/lib/systemd/system/drcm_server.service)"
@@ -126,7 +128,7 @@ fi
 
 # --- Package config files that were edited (what the upgrade does with them)
 if [ -n "$PKG" ]; then
-    MOD=$(rpm -V drcm_server 2>/dev/null | awk '$1 ~ /5/ && $2 == "c" {print $3}')
+    MOD=$(rpm -V "$PKGNAME" 2>/dev/null | awk '$1 ~ /5/ && $2 == "c" {print $3}')
     if [ -z "$MOD" ]; then
         ok "no packaged config file was edited"
     else
@@ -183,13 +185,15 @@ if [ -n "$RPM_FILE" ]; then
                     ok "$NEW: static OpenSSL 3.5, post-quantum TLS; FIPS mode is off on this host"
                 fi
                 if [ -n "$PKG" ] && [ "${PKG#drcm_server-openssl35}" == "$PKG" ]; then
-                    info "to move this node from $PKG to the openssl35 build: stop DRCM, then dnf swap drcm_server $RPM_FILE"
+                    info "to move this node from $PKG to the openssl35 build: stop DRCM, then dnf install --allowerasing $RPM_FILE"
                 fi ;;
         esac
-        fi
-        if [ -n "$PKG" ]; then
+        NEWNAME=$(rpm -qp --qf '%{NAME}' "$RPM_FILE" 2>/dev/null)
+        if [ -n "$PKG" ] && [ "$NEWNAME" != "$PKGNAME" ]; then
+            info "$NEWNAME replaces $PKGNAME (the other RHEL 8 build): dnf install --allowerasing, not dnf upgrade"
+        elif [ -n "$PKG" ]; then
             CMP=$(rpm -qp --qf '%{VERSION}-%{RELEASE}' "$RPM_FILE" 2>/dev/null)
-            OLDVR=$(rpm -q --qf '%{VERSION}-%{RELEASE}' drcm_server)
+            OLDVR=$(rpm -q --qf '%{VERSION}-%{RELEASE}' "$PKGNAME")
             PY=$(command -v /usr/libexec/platform-python python3 2>/dev/null | head -1)
             r=$($PY -c "import rpm,sys; a=sys.argv[1].split('-',1); b=sys.argv[2].split('-',1); print(rpm.labelCompare(('0',a[0],a[1]),('0',b[0],b[1])))" "$CMP" "$OLDVR" 2>/dev/null)
             case "$r" in

@@ -289,8 +289,10 @@ Verified by installing the 1.37 RPM on RHEL 8 (UBI 8.10) and running
    `dnf upgrade` keeps a node on the same package (`drcm_server`, the
    system OpenSSL build on RHEL 8). To move a RHEL 8 node to the
    post-quantum build, after the upgrade and with DRCM still stopped:
-   `dnf swap drcm_server drcm_server-openssl35-1.49-1.el8.x86_64.rpm`
-   (back: `dnf swap drcm_server-openssl35 drcm_server-1.49-1.el8.x86_64.rpm`).
+   `dnf install --allowerasing ./drcm_server-openssl35-1.49-1.el8.x86_64.rpm`
+   (back: `dnf install --allowerasing ./drcm_server-1.49-1.el8.x86_64.rpm`;
+   from a local repository, `dnf swap drcm_server drcm_server-openssl35`
+   does the same).
    The swap keeps cm.cfg, the keys and the service state:
    `dnf -y upgrade /root/drcm_149/drcm_server-1.49-1.el8.x86_64.rpm`
    (use `dnf -y install` if `rpm -q drcm_server` showed no package).

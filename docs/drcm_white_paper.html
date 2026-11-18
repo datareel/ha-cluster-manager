@@ -592,7 +592,8 @@ node: root can read the cluster key and run any command.</p>
     checksum-verified upstream release) and the post-quantum key exchange,
     with nothing extra to install. It is not for FIPS mode, and DataReel
     re-releases it for OpenSSL 3.5 security fixes.</li>
-<li><code>dnf swap</code> moves a node between the two while DRCM is stopped,
+<li><code>dnf install --allowerasing</code> with the other RPM (or <code>dnf swap</code> from a
+    repository) moves a node between the two while DRCM is stopped,
     keeping the configuration, keys and service state.</li>
 <li><strong>Networking:</strong> NetworkManager for floating IPs on RHEL 8 and later, and
   firewalld for the cluster port. Floating IPs can be IPv4 or IPv6; the

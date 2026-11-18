@@ -14,7 +14,8 @@ OS=${1,,}
 # rhel8-openssl35 (1.49): the RHEL 8 package drcm_server-openssl35, built from
 # drcm_rhel8.spec with OpenSSL 3.5 linked in statically (post-quantum TLS).
 # It provides drcm_server and conflicts with it; switch with
-# "dnf swap drcm_server drcm_server-openssl35" (stop DRCM first).
+# "dnf install --allowerasing ./drcm_server-openssl35-*.rpm", or dnf swap
+# from a repository (stop DRCM first).
 FLAVOR=system
 SPEC_OS=${OS}
 if [ "${OS}" == "rhel8-openssl35" ]; then
