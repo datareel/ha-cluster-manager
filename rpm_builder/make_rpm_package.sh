@@ -55,7 +55,9 @@ fi
 
 cp -fv drcm_${SPEC_OS}.spec ${BUILDDIR_tmp}/rpmbuild/SPECS/drcm.spec
 if [ "${FLAVOR}" == "openssl35" ]; then
-    sed -i -e 's/^Name: drcm_server$/Name: drcm_server-openssl35\nProvides: drcm_server = %{version}-%{release}\nConflicts: drcm_server/' \
+    # Provides/Conflicts go after Release:, where %{version} and %{release} are defined
+    sed -i -e 's/^Name: drcm_server$/Name: drcm_server-openssl35/' \
+           -e 's/^\(Release: .*\)$/\1\nProvides: drcm_server = %{version}-%{release}\nConflicts: drcm_server/' \
            -e 's/^Summary: .*/Summary: Datareel Cluster Manager RPM, OpenSSL 3.5 static build (post-quantum TLS)/' \
            ${BUILDDIR_tmp}/rpmbuild/SPECS/drcm.spec
     grep -q '^Name: drcm_server-openssl35' ${BUILDDIR_tmp}/rpmbuild/SPECS/drcm.spec || { echo "ERROR - spec Name not changed"; exit 1; }
@@ -195,7 +197,7 @@ gzip -c ../man/drcm_server.1 > ${Build}/usr/share/man/man1/drcm_server.1.gz
 gzip -c ../man/drcm_server.8 > ${Build}/usr/share/man/man8/drcm_server.8.gz
 chmod 644  ${Build}/usr/share/man/man1/drcm_server.1.gz
 chmod 644 ${Build}/usr/share/man/man8/drcm_server.8.gz
-if [ "${OS}" == "rhel8" ] || [ "${OS}" == "rhel9" ] || [ "${OS}" == "rhel10" ]; then
+if [ "${SPEC_OS}" == "rhel8" ] || [ "${SPEC_OS}" == "rhel9" ] || [ "${SPEC_OS}" == "rhel10" ]; then
     mkdir -p ${Build}/usr/lib/systemd/system
     chmod 755 ${Build}/usr/lib/systemd/system
     cp -fv ../systemd_init/drcm_server.service  ${Build}/usr/lib/systemd/system/drcm_server.service
