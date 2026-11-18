@@ -111,8 +111,24 @@ Post-quantum TLS (1.49):
 With OpenSSL 3.5 or later, TCP + TLS clusters use the hybrid
 X25519MLKEM768 key exchange in TLS 1.3 (tls_groups, tls_pq_only).
 drcm_server --version prints the linked OpenSSL. RHEL 9 and 10 RPMs use
-the system OpenSSL 3.5; the RHEL 8 RPM uses OpenSSL 3.5 from EPEL
-(openssl3-libs). See the administrator guide, section 8.
+the system OpenSSL 3.5. In FIPS mode DRCM follows the system crypto
+policy (FIPS-approved groups, no post-quantum hybrid).
+
+On RHEL 8 there are two 1.49 packages; install one of them:
+  drcm_server            links RHEL 8's system OpenSSL 1.1.1 (FIPS-validated
+                         by Red Hat, classic TLS). The default: dnf upgrade
+                         from 1.37 or 1.48 stays on this package. Use it on
+                         hosts in FIPS mode.
+  drcm_server-openssl35  OpenSSL 3.5 LTS built in statically, with the
+                         post-quantum TLS key exchange. Nothing extra to
+                         install. Not for FIPS mode (the built-in OpenSSL is
+                         not a validated module). DataReel re-releases it for
+                         OpenSSL 3.5 security fixes.
+Switch between them with DRCM stopped:
+  dnf swap drcm_server drcm_server-openssl35    (and back the other way)
+The configuration, keys and service state are kept.
+
+See the administrator guide, section 8.
 
 AI-assisted install, upgrade and support:
 ----------------------------------------

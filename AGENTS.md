@@ -173,10 +173,14 @@ Manual: sections 3 and 4 of `docs/drcm.txt`.
    Check it: `sha256sum -c drcm_server-1.49-1.el8.x86_64.rpm.sha256sum`.
    Stop if it fails.
 2. `dnf -y install ./drcm_server-1.49-1.el8.x86_64.rpm` on each node (one
-   node at a time, rule 1). On RHEL 8, 1.49 needs OpenSSL 3.5 from EPEL
-   (`openssl3-libs`, installed next to the system OpenSSL 1.1.1): EPEL
-   must be enabled on the node, and enabling it is a change that needs
-   the person's OK. RHEL 9 and 10 use the system OpenSSL 3.5.
+   node at a time, rule 1). RHEL 9 and 10 have one package. RHEL 8 has
+   two; the person chooses:
+   - `drcm_server-1.49-1.el8.x86_64.rpm`: RHEL 8's system OpenSSL 1.1.1,
+     FIPS-validated, classic TLS. Required on hosts in FIPS mode
+     (`fips-mode-setup --check`).
+   - `drcm_server-openssl35-1.49-1.el8.x86_64.rpm`: OpenSSL 3.5 built in,
+     post-quantum TLS key exchange, nothing extra to install. Not for FIPS
+     mode.
 3. Make the auth keys on ONE node, then copy the two files to the others
    over SSH (the person runs the copy or confirms it):
    ```
@@ -282,8 +286,12 @@ Verified by installing the 1.37 RPM on RHEL 8 (UBI 8.10) and running
    says `inactive` and `pgrep -x drcm_server` prints nothing, on every node,
    before going on. Check the floating IPs are released (`ip -4 addr`).
 3. **Upgrade each node** (now safe one at a time, every node is stopped).
-   On RHEL 8 the 1.49 RPM needs EPEL's `openssl3-libs`; the pre-flight
-   warns when EPEL is not available:
+   `dnf upgrade` keeps a node on the same package (`drcm_server`, the
+   system OpenSSL build on RHEL 8). To move a RHEL 8 node to the
+   post-quantum build, after the upgrade and with DRCM still stopped:
+   `dnf swap drcm_server drcm_server-openssl35-1.49-1.el8.x86_64.rpm`
+   (back: `dnf swap drcm_server-openssl35 drcm_server-1.49-1.el8.x86_64.rpm`).
+   The swap keeps cm.cfg, the keys and the service state:
    `dnf -y upgrade /root/drcm_149/drcm_server-1.49-1.el8.x86_64.rpm`
    (use `dnf -y install` if `rpm -q drcm_server` showed no package).
 4. **Unit files:** if the pre-flight reported an unowned

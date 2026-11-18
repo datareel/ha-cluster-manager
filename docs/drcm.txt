@@ -94,8 +94,11 @@ example means content left out.
       RPM spec drcm_rhel9.spec.
   RHEL 8
       Status: Best effort, legacy
-      Notes: RPMs are still built (drcm_rhel8.spec). NetworkManager
-      only; convert any network-scripts systems.
+      Notes: Two packages from 1.49: drcm_server (system OpenSSL
+      1.1.1, FIPS-validated, classic TLS; the dnf upgrade default) and
+      drcm_server-openssl35 (OpenSSL 3.5 built in, post-quantum TLS, not
+      for FIPS mode). Switch with dnf swap while DRCM is stopped.
+      NetworkManager only; convert any network-scripts systems.
   RHEL 6 and RHEL 7
       Status: No longer supported
       Notes: 1.37 was the last release for them. RHEL 7's OpenSSL 1.0.2
@@ -534,9 +537,14 @@ Post-quantum key exchange (1.49):
   cluster traffic cannot be decrypted later with a quantum computer.
   It is the first entry of the default tls_groups; X25519 stays as the
   fallback for peers without ML-KEM.
-* drcm_server --version prints the linked OpenSSL. RHEL 9 and 10 RPMs
-  use the system OpenSSL 3.5; the RHEL 8 RPM is built with OpenSSL 3.5
-  from 1.49 on.
+* drcm_server --version prints the linked OpenSSL and how it is linked
+  (system or static). RHEL 9 and 10 RPMs use the system OpenSSL 3.5. On
+  RHEL 8, drcm_server uses the system OpenSSL 1.1.1 (classic TLS) and
+  drcm_server-openssl35 has OpenSSL 3.5 built in (post-quantum TLS).
+* FIPS mode: DRCM sets no group list and the system crypto policy
+  chooses FIPS-approved groups; the validated FIPS providers have no
+  ML-KEM yet, so there is no post-quantum hybrid in FIPS mode, and
+  tls_pq_only is refused. On RHEL 8 in FIPS mode use drcm_server.
 * The log shows the TLS version and key exchange of each peer when it
   is first seen and when it changes, for example
   "TLS to cmnode2: TLSv1.3, key exchange X25519MLKEM768 (post-quantum

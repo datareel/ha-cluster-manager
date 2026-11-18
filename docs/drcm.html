@@ -325,7 +325,7 @@ footer { color: var(--text-muted); font-size: 14px; padding-top: 8px; }
     <tbody>
       <tr><td>RHEL 10</td><td><span class="badge ok">Supported</span></td><td>Native systemd unit, NetworkManager, firewalld, OpenSSL 3. RPM spec <code>drcm_rhel10.spec</code>.</td></tr>
       <tr><td>RHEL 9</td><td><span class="badge ok">Supported</span></td><td>Native systemd unit, NetworkManager, firewalld, OpenSSL 3. RPM spec <code>drcm_rhel9.spec</code>.</td></tr>
-      <tr><td>RHEL 8</td><td><span class="badge warn">Best effort, legacy</span></td><td>RPMs are still built (<code>drcm_rhel8.spec</code>). NetworkManager only; convert any network-scripts systems.</td></tr>
+      <tr><td>RHEL 8</td><td><span class="badge warn">Best effort, legacy</span></td><td>Two packages from 1.49: <code>drcm_server</code> (system OpenSSL 1.1.1, FIPS-validated, classic TLS; the <code>dnf upgrade</code> default) and <code>drcm_server-openssl35</code> (OpenSSL 3.5 built in, post-quantum TLS, not for FIPS mode). Switch with <code>dnf swap</code> while DRCM is stopped. NetworkManager only; convert any network-scripts systems.</td></tr>
       <tr><td>RHEL 6 and RHEL 7</td><td><span class="badge bad">No longer supported</span></td><td>1.37 was the last release for them. RHEL 7's OpenSSL 1.0.2 has no TLS 1.3, and both are past end of maintenance.</td></tr>
     </tbody>
   </table></div>
@@ -589,7 +589,8 @@ ldm, ldm:users, ldmadmin start, ldmadmin stop, if [ -f ~/util/ldm_ensure.sh ]; t
   <h3 id="post-quantum">Post-quantum key exchange (1.49)</h3>
   <ul>
     <li>With OpenSSL 3.5 or later, TLS 1.3 connections use the hybrid <code>X25519MLKEM768</code> key exchange (ML-KEM-768 with X25519), so recorded cluster traffic cannot be decrypted later with a quantum computer. It is the first entry of the default <code>tls_groups</code>; X25519 stays as the fallback for peers without ML-KEM.</li>
-    <li><code>drcm_server --version</code> prints the linked OpenSSL. RHEL 9 and 10 RPMs use the system OpenSSL 3.5; the RHEL 8 RPM is built with OpenSSL 3.5 from 1.49 on.</li>
+    <li><code>drcm_server --version</code> prints the linked OpenSSL and how it is linked (system or static). RHEL 9 and 10 RPMs use the system OpenSSL 3.5. On RHEL 8, <code>drcm_server</code> uses the system OpenSSL 1.1.1 (classic TLS) and <code>drcm_server-openssl35</code> has OpenSSL 3.5 built in (post-quantum TLS).</li>
+    <li>FIPS mode: DRCM sets no group list and the system crypto policy chooses FIPS-approved groups; the validated FIPS providers have no ML-KEM yet, so there is no post-quantum hybrid in FIPS mode, and <code>tls_pq_only</code> is refused. On RHEL 8 in FIPS mode use <code>drcm_server</code>.</li>
     <li>The log shows the TLS version and key exchange of each peer when it is first seen and when it changes, for example <code>TLS to cmnode2: TLSv1.3, key exchange X25519MLKEM768 (post-quantum hybrid)</code>. A "classic" note means a peer without ML-KEM.</li>
     <li>For full protection set <code>tls_min_version = 1.3</code> once every node runs 1.49 (TLS 1.2 has no post-quantum key exchange), and <code>tls_pq_only = 1</code> to refuse anything else.</li>
     <li>Not affected by quantum computers: the frame HMAC-SHA256 with the 2048-byte shared authkey (symmetric). The node certificates (RSA or ECDSA) authenticate live handshakes only; recorded traffic does not help forge them. UDP frames are authenticated but not encrypted; use the TCP transport where cluster traffic must stay confidential.</li>

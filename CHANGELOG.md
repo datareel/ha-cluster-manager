@@ -24,10 +24,16 @@ upgrade every node, then start them (see AGENTS.md section 5).
   "classic").
 - `drcm_server --version` prints the linked OpenSSL version and whether
   it has the post-quantum key exchange.
-- Build: `make OPENSSL_PC=openssl3` (pkg-config, with an rpath) or
+- In FIPS mode (`/proc/sys/crypto/fips_enabled` or OpenSSL's FIPS
+  properties) DRCM sets no TLS group list and the system crypto policy
+  chooses FIPS-approved groups; `tls_pq_only` is refused there.
+  `--version` shows the OpenSSL flavor (system, static or custom) and
+  FIPS mode.
+- Build: `make OPENSSL_PC=name` (pkg-config, with an rpath) or
   `make OPENSSL_PREFIX=/path [OPENSSL_STATIC=1]` builds against an
-  OpenSSL other than the system one. `make_rpm_package.sh` fails if the
-  binary links OpenSSL 1.x or reports an OpenSSL older than 3.5.
+  OpenSSL other than the system one; `build/build_openssl35.sh` builds the
+  static OpenSSL 3.5.9 (pinned sha256). `make_rpm_package.sh` checks
+  each package's OpenSSL linkage.
 - `AGENTS.md` (with `GEMINI.md` and `CLAUDE.md`): AI-assisted install,
   upgrade and support. Before any AI assistance: the organization's AI
   usage policies, formal written management approval and approved
@@ -40,16 +46,20 @@ upgrade every node, then start them (see AGENTS.md section 5).
 - `tools/drcm_preflight.sh`: read-only upgrade check for one node (OS,
   installed package, unit files, the config file checked with the new
   binary from the RPM, auth keys, edited package files and what the
-  upgrade does with them, EPEL `openssl3-libs` for the RHEL 8 RPM,
+  upgrade does with them, the RHEL 8 package choice and FIPS mode,
   cluster status).
 - Design and security white paper: `docs/drcm_white_paper.md` (source),
   `.html` and `.txt`, made with `tools/make_white_paper.py`.
 
 ### Changed
-- The RHEL 8 RPM is built with OpenSSL 3.5 from EPEL (`openssl3-devel`)
-  instead of RHEL 8's OpenSSL 1.1.1, and requires `openssl3-libs >= 3.5`,
-  installed next to the system OpenSSL. EPEL must be enabled on RHEL 8
-  nodes. RHEL 9 and 10 RPMs use the system OpenSSL 3.5 as before.
+- RHEL 8 has two packages. `drcm_server` links RHEL 8's system OpenSSL
+  1.1.1 (FIPS-validated by Red Hat, classic TLS) and is where `dnf
+  upgrade` from 1.37 or 1.48 lands. `drcm_server-openssl35` has OpenSSL
+  3.5.9 built in statically, with the post-quantum key exchange, for
+  hosts not in FIPS mode; it provides and conflicts with `drcm_server`,
+  and `dnf swap` moves a node between the two, keeping the configuration,
+  keys and service state. RHEL 9 and 10 RPMs use the system OpenSSL 3.5
+  as before.
 - The RPMs install the administrator guide (`drcm.html`, `drcm.txt`),
   the white paper, `CHANGELOG.md`, `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`
   and `drcm_preflight.sh` in `/usr/share/doc/drcm`. Before, only

@@ -205,8 +205,8 @@ node: root can read the cluster key and run any command.
   RHEL 10 RPMs use the system OpenSSL 3.5, so TCP clusters of those nodes
   negotiate it with TLS 1.3.
 - **1.49:**
-  - The RHEL 8 RPM is built with OpenSSL 3.5 (EPEL `openssl3`) instead of
-    RHEL 8's OpenSSL 1.1.1, so every node can use the hybrid key exchange.
+  - RHEL 8 gets a second package, `drcm_server-openssl35`, with OpenSSL
+    3.5 built in, so RHEL 8 nodes can use the hybrid key exchange too.
   - A `tls_groups` setting (default `X25519MLKEM768:X25519`) and a strict
     `tls_pq_only` mode, which allows only the hybrid group and requires
     TLS 1.3. `--check-config` refuses a group the linked OpenSSL does not
@@ -215,6 +215,12 @@ node: root can read the cluster key and run any command.
     administrator can see that the hybrid group is in use, and
     `drcm_server --version` prints the linked OpenSSL.
   - Recommended once every node runs 1.49: `tls_min_version = 1.3`.
+- **FIPS mode.** On a host in FIPS mode DRCM sets no group list and the
+  system crypto policy picks FIPS-approved groups. The validated FIPS
+  providers have no ML-KEM yet, so FIPS mode means a classic key exchange
+  for now (**1.49**). OpenSSL's 3.1.2 FIPS provider (CMVP certificate
+  #4985) is validated and works with OpenSSL 3.5; a validated provider
+  with ML-KEM would allow both.
 - **Certificates.** Node certificates (RSA or ECDSA) authenticate live
   handshakes; recorded traffic does not help forge them later.
   Post-quantum certificates (ML-DSA) are a possible later option.
@@ -231,9 +237,16 @@ node: root can read the cluster key and run any command.
   SHA-256 checksum, on the [downloads page](https://datareel.com/downloads/drcm_downloads.php).
   The RPM installs a native systemd unit.
 - **OpenSSL per platform:** RHEL 10 and RHEL 9 use the system OpenSSL 3.5.
-  Up to 1.48 the RHEL 8 RPM used RHEL 8's OpenSSL 1.1.1; from **1.49** it
-  uses OpenSSL 3.5 from EPEL (`openssl3-libs`), installed next to the
-  system OpenSSL without replacing it.
+  RHEL 8 has two packages from **1.49**:
+  - `drcm_server` links RHEL 8's system OpenSSL 1.1.1, which Red Hat has
+    FIPS-validated; classic TLS key exchange. `dnf upgrade` from 1.37 or
+    1.48 stays on this package, and it is the one for hosts in FIPS mode.
+  - `drcm_server-openssl35` has OpenSSL 3.5 LTS built in (static, from the
+    checksum-verified upstream release) and the post-quantum key exchange,
+    with nothing extra to install. It is not for FIPS mode, and DataReel
+    re-releases it for OpenSSL 3.5 security fixes.
+  - `dnf swap` moves a node between the two while DRCM is stopped,
+    keeping the configuration, keys and service state.
 - **Networking:** NetworkManager for floating IPs on RHEL 8 and later, and
   firewalld for the cluster port. Floating IPs can be IPv4 or IPv6; the
   cluster traffic between nodes is IPv4.
@@ -300,7 +313,11 @@ DRCM.
   connections.
 - **Replay window needs clocks.** `replay_window_secs` assumes
   synchronized clocks; leave it at 0 without chrony.
-- **RHEL 8 is best effort,** and from 1.49 needs EPEL for OpenSSL 3.5.
+- **RHEL 8 is best effort.** Its post-quantum package carries its own
+  OpenSSL, so its OpenSSL fixes come with DRCM releases, not with `dnf
+  update` of the system OpenSSL.
+- **FIPS mode and post-quantum TLS do not combine yet:** the validated
+  FIPS providers have no ML-KEM.
 
 ## 13. Licensing
 
