@@ -10,6 +10,7 @@ https://datareel.com/downloads/drcm/
 Contents:
 --------
 * Overview
+* Hybrid On-Premises + Cloud Clusters
 * Documentation
 * Post-quantum TLS (1.49)
 * AI-assisted install, upgrade and support
@@ -58,6 +59,37 @@ for its resources.
 
 In virtualized data centers, clustering VMs that run on different bare
 metal hosts protects services from the loss of a host.
+
+Hybrid On-Premises + Cloud Clusters:
+-----------------------------------
+Run Local. Fail Over to the Cloud. A hybrid DRCM cluster puts the
+primary nodes on hardware you own and one or more standby nodes in a
+cloud such as AWS. The local nodes do the everyday work at no extra
+compute cost; the cloud node holds a current copy of the data and takes
+over only when it is needed.
+
+* Lower cloud cost: run the heavy, always-on work on your own servers
+  and keep a right-sized standby node in the cloud instead of a
+  full-time fleet.
+* Automatic failover and failback: crontabs, services, applications and
+  floating IPs move to the cloud node when a local node fails and return
+  when it recovers (see Running the DRCM Server).
+* Data replication: 2-way rsync replication over SSH keeps application
+  data, web content and MySQL or PostgreSQL data directories copied to
+  the cloud node every few minutes, and syncs changes made in the cloud
+  back before the local node resumes (see 2-way file replication over
+  the internet or a tunnel).
+* Floating IPs in both places: NetworkManager floating IPs on the LAN and
+  AWS Elastic IP or VPC route-table addresses with aws_ipv4addr.sh (see
+  the administrator guide).
+* Safe over the internet: the TCP + TLS transport, witness quorum and
+  split brain protection (isolation_check and takeover_check) keep a lost
+  internet link from leaving two active copies of a service.
+* Dev, QA and ops in one plan: anything that runs from cron, systemd or a
+  start script can be a cluster resource. Node standby, including remote
+  standby from the cloud node, lets you patch local hardware or rehearse
+  a failover on your own schedule.
+* Open source: GPL version 3, with no per-node licensing.
 
 Documentation:
 -------------
