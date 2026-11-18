@@ -11,7 +11,11 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
   site's administrators, who approve each step: install DRCM, set up a
   cluster, upgrade old releases to 1.48, and troubleshoot, with safety
   rules (one node at a time, back up first, stop on a failed check),
-  stop-and-escalate cases and a support summary for DataReel.
+  stop-and-escalate cases and a support summary for DataReel. Human in
+  the loop: the agent never acts on its own; advisory mode (the
+  administrator runs each command) is the default, with no auto-approve
+  modes, no unattended or batch runs and one node per approval, so it
+  works with strict AI policies.
   `GEMINI.md` and `CLAUDE.md` import it.
 - `tools/drcm_preflight.sh`: read-only upgrade check for one node (OS,
   installed package, unit files, config file checked with the new

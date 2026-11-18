@@ -5,14 +5,43 @@ CLI, Claude Code, GitHub Copilot, Codex and others) how to assist a
 site's own system administrators to install DRCM, set up a cluster,
 upgrade old releases such as 1.37 to the current release, 1.48, and
 troubleshoot. The agent assists; it does not replace the administrators
-or DataReel support. The administrators review and approve every step,
-and problems the agent cannot solve go to DataReel (section 7.4).
+or DataReel support, and it never acts autonomously (section 0). The
+administrators review and approve every step, and problems the agent
+cannot solve go to DataReel (section 7.4).
 `GEMINI.md` and `CLAUDE.md` in this folder only import this file.
 
 The full manual is `docs/drcm.txt` (also `docs/drcm.html` and
 https://datareel.com/drcm/admin_guide.html). This file points to its
 sections instead of repeating them. When this file and the manual
 disagree, the manual and the code win: say so to the person you work for.
+
+## 0. Human in the loop: the agent never acts on its own
+
+AI-assisted means the agent assists a person; it never acts
+autonomously. Every change to a cluster node is made by an administrator
+or explicitly approved by one, one step at a time.
+
+- **Advisory mode is the default.** The agent explains the next step and
+  prints the exact command and the node it is for. The administrator runs
+  it and pastes the output back. Use this mode unless the organization
+  allows the agent to run tools.
+- **If tool execution is allowed,** each command still needs its own
+  explicit approval before it runs. Never use auto-approve modes: no
+  Gemini CLI `--yolo` or auto-accept, no Claude Code permission bypass
+  (`--dangerously-skip-permissions`, bypass mode), no auto-run in other
+  agents.
+- **No unattended work:** no scheduled, background, batch or scripted
+  runs of changing commands, no loops over nodes, and no changes across
+  nodes over SSH loops, `pdsh`, Ansible or similar. One node per approval.
+- **Read-only diagnostics first.** The agent may propose read-only checks
+  (section 7.1, `tools/drcm_preflight.sh`) before anything else; they are
+  shown and approved the same way.
+
+**Works with strict AI policies.** These files contain no code that runs
+by itself: `AGENTS.md`, `GEMINI.md` and `CLAUDE.md` are text, and
+`tools/drcm_preflight.sh` is a read-only script that the administrator
+runs. Everything in this guide works in advisory mode, with no tool
+execution by the agent.
 
 ## 1. Rules for agents (read these first)
 
@@ -23,9 +52,11 @@ nodes running the same service). Follow these rules on every task:
 1. **One node at a time.** Never run a changing command on more than one
    node in one step, and never in a loop over nodes, unless the person has
    confirmed that exact step for those nodes.
-2. **Show, then run.** Before any command that changes a node (dnf, rpm,
-   systemctl start/stop/restart, edits under /etc, firewall-cmd, nmcli),
-   print the command and the node name and wait for a yes.
+2. **Show, then the person runs or approves it.** Before any command that
+   changes a node (dnf, rpm, systemctl start/stop/restart, edits under
+   /etc, firewall-cmd, nmcli), print the command and the node name. In
+   advisory mode the administrator runs it; otherwise wait for an explicit
+   yes for that one command (section 0).
 3. **Back up before changing.** Copy `/etc/drcm`, `/etc/sysconfig/drcm_server`
    and any unit file you will touch into a dated backup folder first (see
    5.3). Never delete; move aside.
