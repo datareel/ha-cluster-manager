@@ -5,8 +5,12 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
-Planned as 1.49: the bug fixes and security updates from 1.48 installs
-and upgrades, and the items below.
+## [1.49] - 2026-11-18
+
+Post-quantum TLS, the RHEL 8 RPM on OpenSSL 3.5, the AI-assisted guide
+and the full document set in the packages. 1.49 nodes work with 1.42 and
+later nodes; from 1.41 or older (for example 1.37), stop every node,
+upgrade every node, then start them (see AGENTS.md section 5).
 
 ### Added
 - Post-quantum TLS key exchange. New `tls_groups` setting, default
@@ -22,27 +26,51 @@ and upgrades, and the items below.
   it has the post-quantum key exchange.
 - Build: `make OPENSSL_PC=openssl3` (pkg-config, with an rpath) or
   `make OPENSSL_PREFIX=/path [OPENSSL_STATIC=1]` builds against an
-  OpenSSL other than the system one, for the RHEL 8 build on OpenSSL 3.5.
-  RHEL 9 and 10 builds are unchanged.
-- `AGENTS.md`: AI-assisted install, upgrade and support. It tells an AI
-  agent (Gemini CLI, Claude Code, Copilot and others) how to assist a
-  site's administrators, who approve each step: install DRCM, set up a
-  cluster, upgrade old releases to 1.48, and troubleshoot, with safety
-  rules (one node at a time, back up first, stop on a failed check),
-  stop-and-escalate cases and a support summary for DataReel. Human in
-  the loop: the agent never acts on its own; advisory mode (the
-  administrator runs each command) is the default, with no auto-approve
-  modes, no unattended or batch runs and one node per approval, so it
-  works with strict AI policies.
-  `GEMINI.md` and `CLAUDE.md` import it.
+  OpenSSL other than the system one. `make_rpm_package.sh` fails if the
+  binary links OpenSSL 1.x or reports an OpenSSL older than 3.5.
+- `AGENTS.md` (with `GEMINI.md` and `CLAUDE.md`): AI-assisted install,
+  upgrade and support. Before any AI assistance: the organization's AI
+  usage policies, formal written management approval and approved
+  enterprise AI models only. Human in the loop, never autonomous:
+  advisory mode by default, no auto-approve modes, no unattended or
+  batch runs, one node per approval. Safety rules, the upgrade runbook
+  from 1.37, troubleshooting, stop-and-escalate cases and a support
+  summary for DataReel. Naming an AI tool is a reference only, not an
+  endorsement.
 - `tools/drcm_preflight.sh`: read-only upgrade check for one node (OS,
-  installed package, unit files, config file checked with the new
+  installed package, unit files, the config file checked with the new
   binary from the RPM, auth keys, edited package files and what the
-  upgrade does with them, cluster status).
-- Tested: the 1.37 RPM on RHEL 8 (UBI 8.10) upgrades to the 1.48 el8 RPM
-  with `dnf upgrade`; cm.cfg and the auth keys are kept, the old unit
-  file and init script are removed, edited resource scripts are kept
-  (`.rpmnew`), other edited scripts are replaced (`.rpmsave`).
+  upgrade does with them, EPEL `openssl3-libs` for the RHEL 8 RPM,
+  cluster status).
+- Design and security white paper: `docs/drcm_white_paper.md` (source),
+  `.html` and `.txt`, made with `tools/make_white_paper.py`.
+
+### Changed
+- The RHEL 8 RPM is built with OpenSSL 3.5 from EPEL (`openssl3-devel`)
+  instead of RHEL 8's OpenSSL 1.1.1, and requires `openssl3-libs >= 3.5`,
+  installed next to the system OpenSSL. EPEL must be enabled on RHEL 8
+  nodes. RHEL 9 and 10 RPMs use the system OpenSSL 3.5 as before.
+- The RPMs install the administrator guide (`drcm.html`, `drcm.txt`),
+  the white paper, `CHANGELOG.md`, `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`
+  and `drcm_preflight.sh` in `/usr/share/doc/drcm`. Before, only
+  README.txt, COPYING and version.txt were installed.
+- README.txt: overview, hybrid on-premises and cloud clusters,
+  documentation, post-quantum TLS and AI-assisted sections, in the
+  wording of datareel.com.
+
+### Fixed
+- The HTML administrator guide's footer still said 1.42.
+
+### Tested (11/18/2026)
+- standby_test with 1.42, 1.44 and 1.46 servers for the mixed version
+  tests: UDP 124 of 124, TCP + TLS 126 of 126 (RHEL 10, OpenSSL 3.5.8);
+  every TCP connection negotiated TLS 1.3 with X25519MLKEM768.
+- RHEL 8 RPM built on RHEL 8.10 with EPEL openssl3 3.5.5; in UBI 8: a
+  fresh install, `dnf upgrade` from 1.48 and from 1.37 (config and keys
+  kept, old unit file and init script removed), and a clean refusal
+  without EPEL.
+- A build against RHEL 8's OpenSSL 1.1.1 falls back to X25519 with an
+  info note, and `tls_pq_only` is refused there.
 
 ## [1.48] - 2026-11-18
 

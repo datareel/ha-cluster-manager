@@ -3,7 +3,7 @@
 This file is for AI-assisted work on DRCM: it tells an AI agent (Gemini
 CLI, Claude Code, GitHub Copilot, Codex and others) how to assist a
 site's own system administrators to install DRCM, set up a cluster,
-upgrade old releases such as 1.37 to the current release, 1.48, and
+upgrade old releases such as 1.37 to the current release, 1.49, and
 troubleshoot. The agent assists; it does not replace the administrators
 or DataReel support, and it never acts autonomously (section 0). The
 administrators review and approve every step, and problems the agent
@@ -121,7 +121,7 @@ messages; when a node stops answering, its peers take over its resources
 set in the config file. A node can be put in standby for maintenance
 (`--command=standby`, 1.43 and later).
 
-| Item | Location (1.48) |
+| Item | Location (1.49) |
 | --- | --- |
 | Server binary | `/usr/sbin/drcm_server` |
 | Config file | `/etc/drcm/cm.cfg` (override with `CFGFILE` in `/etc/sysconfig/drcm_server`) |
@@ -168,12 +168,15 @@ CHANGELOG.md.
 
 Manual: sections 3 and 4 of `docs/drcm.txt`.
 
-1. Download the RPM for the OS (`drcm_server-1.48-1.el8.x86_64.rpm`, el9 or
+1. Download the RPM for the OS (`drcm_server-1.49-1.el8.x86_64.rpm`, el9 or
    el10) and its `.sha256sum` from https://datareel.com/downloads/drcm_downloads.php.
-   Check it: `sha256sum -c drcm_server-1.48-1.el8.x86_64.rpm.sha256sum`.
+   Check it: `sha256sum -c drcm_server-1.49-1.el8.x86_64.rpm.sha256sum`.
    Stop if it fails.
-2. `dnf -y install ./drcm_server-1.48-1.el8.x86_64.rpm` on each node (one
-   node at a time, rule 1).
+2. `dnf -y install ./drcm_server-1.49-1.el8.x86_64.rpm` on each node (one
+   node at a time, rule 1). On RHEL 8, 1.49 needs OpenSSL 3.5 from EPEL
+   (`openssl3-libs`, installed next to the system OpenSSL 1.1.1): EPEL
+   must be enabled on the node, and enabling it is a change that needs
+   the person's OK. RHEL 9 and 10 use the system OpenSSL 3.5.
 3. Make the auth keys on ONE node, then copy the two files to the others
    over SSH (the person runs the copy or confirms it):
    ```
@@ -194,12 +197,12 @@ Manual: sections 3 and 4 of `docs/drcm.txt`.
    Check `cm_stat` on every node: every node is up, each resource has one
    owner.
 
-## 5. AI-assisted upgrade from 1.37 (or any 1.41 or older) to 1.48
+## 5. AI-assisted upgrade from 1.37 (or any 1.41 or older) to 1.49
 
 ### 5.1 What changes, and what does not
 
 Verified by installing the 1.37 RPM on RHEL 8 (UBI 8.10) and running
-`dnf upgrade` to the 1.48 el8 RPM:
+`dnf upgrade` to the 1.49 el8 RPM:
 
 - **No rolling upgrade.** Since 1.42 every cluster message is an
   authenticated v2 frame. A 1.42 or later node and a 1.41 or older node do
@@ -209,29 +212,29 @@ Verified by installing the 1.37 RPM on RHEL 8 (UBI 8.10) and running
   services are down while DRCM is stopped (unless the config keeps them
   with `keep_services`, `keep_applications` or `keep_filesystems`).
 - **Never run `dnf upgrade` on a node where DRCM is running.** Both the
-  1.37 and the 1.48 package scripts run `systemctl try-restart
-  drcm_server`, so a running node restarts straight into 1.48 next to 1.37
+  1.37 and the 1.49 package scripts run `systemctl try-restart
+  drcm_server`, so a running node restarts straight into 1.49 next to 1.37
   peers.
 - **Package version order is fine.** The 1.37 RPMs are named
-  `...1.37-1.el7.x86_64.x86_64.rpm` (Release `1.el7.x86_64`). Version 1.48
-  is higher than 1.37, so `dnf upgrade` takes the el8 1.48 RPM.
-- **Kept unchanged:** `/etc/drcm/cm.cfg` (1.48 reads 1.37 config files;
+  `...1.37-1.el7.x86_64.x86_64.rpm` (Release `1.el7.x86_64`). Version 1.49
+  is higher than 1.37, so `dnf upgrade` takes the el8 1.49 RPM.
+- **Kept unchanged:** `/etc/drcm/cm.cfg` (1.49 reads 1.37 config files;
   the old key spellings `ipapddrs_check`, `ipaddr_check` and `logfile_name`
   are still accepted), the auth keys (same files and format), the port,
   and `/etc/sysconfig/drcm_server` (same file; `CMPROC` and `CMPROCNAME`
   are no longer used).
 - **Service files:** the 1.37 package's `/etc/systemd/system/drcm_server.service`
   (which ran `/etc/rc.d/init.d/drcm_server`) and the init script are
-  removed; 1.48 installs `/usr/lib/systemd/system/drcm_server.service`. If
+  removed; 1.49 installs `/usr/lib/systemd/system/drcm_server.service`. If
   DRCM 1.37 was built from source instead of installed as an RPM, those
   two files are not removed and the old unit file would still win: move
   them to the backup folder (5.3, step 4).
 - **Edited package files:**
   - Files under `/etc/drcm/resources/`, `/etc/drcm/crontabs/` and
     `/etc/drcm/my_cluster_conf/my_cluster_info.sh` that you edited are
-    **kept**; the 1.48 version is saved next to them as `.rpmnew`.
+    **kept**; the 1.49 version is saved next to them as `.rpmnew`.
   - Other edited files (for example `/etc/drcm/utils/send_alert.sh` or
-    the `file_system_sync` scripts) are **replaced** by the 1.48 version;
+    the `file_system_sync` scripts) are **replaced** by the 1.49 version;
     your copy is saved as `.rpmsave`. Re-apply the site changes.
   - `tools/drcm_preflight.sh` lists both kinds for each node.
 - **`/etc/drcm/.auth` is reset to root:root mode 700** by the RPM. Set a
@@ -240,25 +243,25 @@ Verified by installing the 1.37 RPM on RHEL 8 (UBI 8.10) and running
   keeps working (it uses `ip addr`). On RHEL 8, `ipv4addr_nmcli.sh` is the
   NetworkManager way (manual section 12); switch later as its own change,
   not in the upgrade window.
-- **New in 1.42 to 1.48, all optional and off by default:** TCP + TLS
+- **New in 1.42 to 1.49, all optional and off by default:** TCP + TLS
   transport and witness quorum (`tools/migrate_cfg.py`), split brain
   protection (`isolation_check`, `takeover_check`), node standby and timed
   and remote standby, file replication over the internet. See CHANGELOG.md.
 
 ### 5.2 Before the window (read-only, on every node)
 
-1. Copy `tools/drcm_preflight.sh` and the 1.48 RPM with its `.sha256sum`
-   to each node (for example `/root/drcm_148/`).
+1. Copy `tools/drcm_preflight.sh` and the 1.49 RPM with its `.sha256sum`
+   to each node (for example `/root/drcm_149/`).
 2. Run it on each node and save the output:
    ```
-   bash /root/drcm_148/drcm_preflight.sh --rpm=/root/drcm_148/drcm_server-1.48-1.el8.x86_64.rpm | tee /root/drcm_148/preflight_$(hostname -s).txt
+   bash /root/drcm_149/drcm_preflight.sh --rpm=/root/drcm_149/drcm_server-1.49-1.el8.x86_64.rpm | tee /root/drcm_149/preflight_$(hostname -s).txt
    ```
    It checks the OS, the installed package, unit files, the config file
-   (with the 1.48 binary's `--check-config`, unpacked to a temporary
+   (with the 1.49 binary's `--check-config`, unpacked to a temporary
    folder), the auth keys, edited package files, and shows `cm_stat`. It
    changes nothing. A WARN that DRCM is running is expected at this stage.
 3. Compare across nodes: the `authkey sha1` lines must be identical, every
-   node must accept the config with the 1.48 binary, and `cm_stat` must
+   node must accept the config with the 1.49 binary, and `cm_stat` must
    show a healthy cluster. Fix every FAIL before the window. Hand every
    WARN to the person.
 4. Note which node is primary for which resources (from `cm_stat`), and the
@@ -278,8 +281,10 @@ Verified by installing the 1.37 RPM on RHEL 8 (UBI 8.10) and running
    `systemctl stop drcm_server`. Check `systemctl is-active drcm_server`
    says `inactive` and `pgrep -x drcm_server` prints nothing, on every node,
    before going on. Check the floating IPs are released (`ip -4 addr`).
-3. **Upgrade each node** (now safe one at a time, every node is stopped):
-   `dnf -y upgrade /root/drcm_148/drcm_server-1.48-1.el8.x86_64.rpm`
+3. **Upgrade each node** (now safe one at a time, every node is stopped).
+   On RHEL 8 the 1.49 RPM needs EPEL's `openssl3-libs`; the pre-flight
+   warns when EPEL is not available:
+   `dnf -y upgrade /root/drcm_149/drcm_server-1.49-1.el8.x86_64.rpm`
    (use `dnf -y install` if `rpm -q drcm_server` showed no package).
 4. **Unit files:** if the pre-flight reported an unowned
    `/etc/systemd/system/drcm_server.service` or `/etc/rc.d/init.d/drcm_server`,
@@ -289,10 +294,10 @@ Verified by installing the 1.37 RPM on RHEL 8 (UBI 8.10) and running
    `ExecStart=/usr/sbin/drcm_server --config-file=${CFGFILE} $ARGS`.
 5. **Edited files:** `find /etc/drcm /etc/sysconfig -name '*.rpmnew' -o -name '*.rpmsave'`.
    For each `.rpmsave`, re-apply the site change to the new file. For each
-   `.rpmnew`, compare with `diff` and tell the person what 1.48 changed; keep
+   `.rpmnew`, compare with `diff` and tell the person what 1.49 changed; keep
    the site file unless they decide otherwise. Re-apply any group on
    `/etc/drcm/.auth`.
-6. **Check every node:** `drcm_server --version` says 1.48;
+6. **Check every node:** `drcm_server --version` says 1.49;
    `drcm_server --check-config` has no ERROR lines; `authkey.sha1` is the same
    as before.
 7. **Start the primary**: `systemctl start drcm_server`. Wait until
@@ -309,14 +314,14 @@ Verified by installing the 1.37 RPM on RHEL 8 (UBI 8.10) and running
 
 ### 5.4 Roll back (all nodes again, never just one)
 
-A 1.48 node cannot run next to 1.37 nodes, so a rollback is the same as the
+A 1.49 node cannot run next to 1.37 nodes, so a rollback is the same as the
 upgrade in reverse: stop DRCM on every node; on each node
 `rpm -Uvh --oldpackage <the 1.37 RPM>` (or reinstall the source build), copy
 the files back from the backup folder (`/etc/drcm`, the sysconfig file, the
 old unit file and init script), `systemctl daemon-reload`; start the
 primary, then the others.
 
-### 5.5 Upgrading from 1.42 to 1.47
+### 5.5 Upgrading from 1.42 or later
 
 1.42 and later speak the same protocol, so a rolling upgrade works: on
 each node in turn, put it in standby (1.43 and later), stop DRCM, back up,

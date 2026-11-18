@@ -173,6 +173,16 @@ if [ -n "$RPM_FILE" ]; then
         fi
         NEW=$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' "$RPM_FILE" 2>/dev/null)
         info "new package: $NEW"
+        # RHEL 8 RPMs from 1.49 need OpenSSL 3.5 from EPEL (openssl3-libs)
+        if rpm -qp --requires "$RPM_FILE" 2>/dev/null | grep -q '^openssl3-libs'; then
+            if rpm -q openssl3-libs >/dev/null 2>&1; then
+                ok "openssl3-libs is installed ($(rpm -q openssl3-libs))"
+            elif dnf -q list --available openssl3-libs >/dev/null 2>&1; then
+                info "openssl3-libs is available (EPEL); dnf installs it with the upgrade"
+            else
+                fail "$NEW needs openssl3-libs (OpenSSL 3.5) from EPEL, and no enabled repository has it: enable EPEL on this node first"
+            fi
+        fi
         if [ -n "$PKG" ]; then
             CMP=$(rpm -qp --qf '%{VERSION}-%{RELEASE}' "$RPM_FILE" 2>/dev/null)
             OLDVR=$(rpm -q --qf '%{VERSION}-%{RELEASE}' drcm_server)

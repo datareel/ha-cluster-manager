@@ -1,7 +1,7 @@
 # DataReel Cluster Manager (DRCM): design and security white paper
 
-**Release:** 1.48 (November 2026). Items marked **1.49** are on the 1.49
-release branch and are planned for the next release.
+**Release:** 1.49 (November 2026). Items marked **1.49** are new in this
+release.
 **Audience:** system administrators, architects and security reviewers
 deciding whether to run services on DRCM clusters. The source code is
 published under the GNU General Public License, so everything here can be
@@ -231,7 +231,7 @@ node: root can read the cluster key and run any command.
   SHA-256 checksum, on the [downloads page](https://datareel.com/downloads/drcm_downloads.php).
   The RPM installs a native systemd unit.
 - **OpenSSL per platform:** RHEL 10 and RHEL 9 use the system OpenSSL 3.5.
-  Up to 1.48 the RHEL 8 RPM uses RHEL 8's OpenSSL 1.1.1; from **1.49** it
+  Up to 1.48 the RHEL 8 RPM used RHEL 8's OpenSSL 1.1.1; from **1.49** it
   uses OpenSSL 3.5 from EPEL (`openssl3-libs`), installed next to the
   system OpenSSL without replacing it.
 - **Networking:** NetworkManager for floating IPs on RHEL 8 and later, and

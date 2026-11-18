@@ -1,4 +1,4 @@
-DataReel Cluster Manager (DRCM) 1.48 Administrator Guide
+DataReel Cluster Manager (DRCM) 1.49 Administrator Guide
 Copyright (c) DataReel Software Development
 
 Plain text companion of docs/drcm.html. README.txt and CHANGELOG.md in
@@ -121,7 +121,7 @@ RPM install:
 Prebuilt RPMs for RHEL 8, 9 and 10 are on the downloads page,
 datareel.com/downloads/drcm.
 
-    $ sudo dnf -y install ./drcm_server-1.48-1.el9.x86_64.rpm
+    $ sudo dnf -y install ./drcm_server-1.49-1.el9.x86_64.rpm
     $ rpm -ql drcm_server          # files
     $ rpm -qc drcm_server          # configs
     $ sudo dnf -y remove drcm_server
@@ -131,12 +131,12 @@ Build your own RPM:
 The build needs gcc-c++, make, rpm-build and openssl-devel.
 
     $ cd $HOME; mkdir -pv git; cd $HOME/git
-    $ wget https://datareel.com/downloads/drcm/ha-cluster-manager-1.48.tar.gz
-    $ tar xzf ha-cluster-manager-1.48.tar.gz
-    $ mv ha-cluster-manager-1.48 ha-cluster-manager
+    $ wget https://datareel.com/downloads/drcm/ha-cluster-manager-1.49.tar.gz
+    $ tar xzf ha-cluster-manager-1.49.tar.gz
+    $ mv ha-cluster-manager-1.49 ha-cluster-manager
     $ cd $HOME/git/ha-cluster-manager/rpm_builder
     $ ./make_rhel10_rpm.sh         # or make_rhel9_rpm.sh, make_rhel8_rpm.sh
-    $ sudo dnf -y install $HOME/rpmbuild/RPMS/x86_64/drcm_server-1.48-1.el10.x86_64.rpm
+    $ sudo dnf -y install $HOME/rpmbuild/RPMS/x86_64/drcm_server-1.49-1.el10.x86_64.rpm
 
 Build from source:
 
@@ -1066,4 +1066,4 @@ Support:
   the risk of AI-assisted use rests with the user. Naming an AI tool is
   a reference only, not an endorsement.
 
-DataReel Cluster Manager 1.48, GNU General Public License.
+DataReel Cluster Manager 1.49, GNU General Public License.

@@ -271,14 +271,14 @@ footer { color: var(--text-muted); font-size: 14px; padding-top: 8px; }
   <h1>DataReel Cluster Manager (DRCM): design and security white paper</h1>
   <p>How DRCM keeps Linux services running through failures and maintenance, on premises, in the cloud or both, and how it protects the cluster.</p>
   <div class="meta">
-    <span class="pill">Release 1.48</span>
+    <span class="pill">Release 1.49</span>
     <span class="pill">RHEL 10 &middot; 9 &middot; 8</span>
     <span class="pill">Plain text copy: drcm_white_paper.txt</span>
   </div>
 </header>
 <section id="intro">
-<p><strong>Release:</strong> 1.48 (November 2026). Items marked <strong>1.49</strong> are on the 1.49
-release branch and are planned for the next release.
+<p><strong>Release:</strong> 1.49 (November 2026). Items marked <strong>1.49</strong> are new in this
+release.
 <strong>Audience:</strong> system administrators, architects and security reviewers
 deciding whether to run services on DRCM clusters. The source code is
 published under the GNU General Public License, so everything here can be
@@ -578,7 +578,7 @@ node: root can read the cluster key and run any command.</p>
   SHA-256 checksum, on the <a href="https://datareel.com/downloads/drcm_downloads.php">downloads page</a>.
   The RPM installs a native systemd unit.</li>
 <li><strong>OpenSSL per platform:</strong> RHEL 10 and RHEL 9 use the system OpenSSL 3.5.
-  Up to 1.48 the RHEL 8 RPM uses RHEL 8's OpenSSL 1.1.1; from <strong>1.49</strong> it
+  Up to 1.48 the RHEL 8 RPM used RHEL 8's OpenSSL 1.1.1; from <strong>1.49</strong> it
   uses OpenSSL 3.5 from EPEL (<code>openssl3-libs</code>), installed next to the
   system OpenSSL without replacing it.</li>
 <li><strong>Networking:</strong> NetworkManager for floating IPs on RHEL 8 and later, and
@@ -679,7 +679,7 @@ the license files in the source code and the site's terms of use.</p>
 <a href="https://datareel.com/contact.php">contact page</a>, with the DRCM version, the platform and the
 steps to reproduce it. Do not post it publicly until a fixed release is
 available.</p></section>
-<footer>DataReel Cluster Manager 1.48 white paper &middot; Copyright &copy; DataReel Software Development &middot; GNU General Public License.</footer>
+<footer>DataReel Cluster Manager 1.49 white paper &middot; Copyright &copy; DataReel Software Development &middot; GNU General Public License.</footer>
 </main>
 </div>
 
