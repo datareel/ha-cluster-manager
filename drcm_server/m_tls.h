@@ -39,19 +39,28 @@ void cm_tls_normalize_fingerprint(const char *in, char *out, size_t out_n);
 
 // Post-quantum key exchange (1.49). OpenSSL 3.5 and later offer the hybrid
 // ML-KEM group X25519MLKEM768 for TLS 1.3. The default group list puts it
-// first and keeps X25519 for peers without it; older OpenSSL builds use
-// X25519 only. tls_pq_only = 1 allows X25519MLKEM768 alone and forces TLS
-// 1.3 (both ends need OpenSSL 3.5+).
+// first and keeps X25519 for peers without it. Without ML-KEM (OpenSSL
+// before 3.5, such as RHEL 8's 1.1.1) or in FIPS mode, DRCM sets no group
+// list and the system crypto policy decides. tls_pq_only = 1 allows
+// X25519MLKEM768 alone and forces TLS 1.3 (both ends need OpenSSL 3.5+,
+// FIPS mode off).
 #define CM_TLS_PQ_GROUP        "X25519MLKEM768"
 #define CM_TLS_GROUPS_DEFAULT  "X25519MLKEM768:X25519"
-#define CM_TLS_GROUPS_CLASSIC  "X25519"
 
 // 1 if the linked OpenSSL can use the ML-KEM hybrid group
 int cm_tls_has_mlkem();
+// 1 if the system or OpenSSL runs in FIPS mode (/proc/sys/crypto/fips_enabled
+// or the OpenSSL default properties). In FIPS mode DRCM does not set its own
+// group list; the system crypto policy chooses approved groups.
+int cm_tls_fips_mode();
+// How OpenSSL is linked: "system" (the OS library), "static" (built in) or
+// "custom" (another shared OpenSSL, OPENSSL_PC / OPENSSL_PREFIX)
+const char *cm_tls_flavor();
 // The linked OpenSSL version text, e.g. "OpenSSL 3.5.9 30 Sep 2026"
 const char *cm_tls_library_version();
 // The group list to use for a configured value (empty = default) and mode.
-// Returns 0 and fills out, or -1 with a reason in err.
+// Returns 0 and fills out (an empty out = use the system crypto policy and
+// OpenSSL defaults), or -1 with a reason in err.
 int cm_tls_resolve_groups(const char *configured, int pq_only,
                           char *out, size_t out_n, char *err, size_t err_n);
 

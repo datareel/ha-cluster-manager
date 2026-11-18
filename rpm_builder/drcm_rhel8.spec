@@ -15,8 +15,6 @@ Requires: libgcc_s.so.1()(64bit)
 Requires: libc.so.6()(64bit)
 Requires: ld-linux-x86-64.so.2()(64bit)
 Requires: systemd
-# OpenSSL 3.5 from EPEL (installs next to the system OpenSSL 1.1.1)
-Requires: openssl3-libs >= 3.5
 Requires: /bin/sh  
 Requires: /bin/bash
 
@@ -111,15 +109,19 @@ tar xvf drcm_server.tar.gz -C $RPM_BUILD_ROOT
 
 %post -p /bin/sh
 
+# The other RHEL 8 build (drcm_server / drcm_server-openssl35) installed in
+# the same transaction is a "dnf swap": leave the service as it is
+drcm_other_build() { rpm -q drcm_server drcm_server-openssl35 2>/dev/null | grep -v -e 'not installed' -e "^%{name}-%{version}-%{release}" | grep -q . ; }
 if [ $1 -eq 1 ] ; then 
     # Initial installation 
-    systemctl preset drcm_server.service >/dev/null 2>&1 || : 
+    drcm_other_build || systemctl preset drcm_server.service >/dev/null 2>&1 || : 
 fi
 
 %preun -p /bin/sh
 
-if [ $1 -eq 0 ] ; then 
-    # Package removal, not upgrade 
+drcm_other_build() { rpm -q drcm_server drcm_server-openssl35 2>/dev/null | grep -v -e 'not installed' -e "^%{name}-%{version}-%{release}" | grep -q . ; }
+if [ $1 -eq 0 ] && ! drcm_other_build ; then 
+    # Package removal, not upgrade or a swap to the other RHEL 8 build 
     systemctl --no-reload disable drcm_server.service > /dev/null 2>&1 || : 
     systemctl stop drcm_server.service > /dev/null 2>&1 || : 
 fi
@@ -136,7 +138,9 @@ fi
 * Wed Nov 18 2026 Datareel <datareel.com>
 - Release 1.49: post-quantum TLS key exchange (tls_groups, default
   X25519MLKEM768:X25519 with OpenSSL 3.5, tls_pq_only), negotiated
-  group logged per peer, OpenSSL version in --version; built with OpenSSL 3.5 from EPEL (openssl3)
+  group logged per peer, OpenSSL version in --version; RHEL 8 ships two
+  packages: drcm_server (system OpenSSL 1.1.1) and drcm_server-openssl35
+  (static OpenSSL 3.5, post-quantum TLS)
 
 * Wed Nov 18 2026 Datareel <datareel.com>
 - Release 1.48: RPM Release tag no longer repeats the architecture

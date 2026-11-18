@@ -70,14 +70,44 @@ const char *cm_tls_library_version()
   return OpenSSL_version(OPENSSL_VERSION);
 }
 
+int cm_tls_fips_mode()
+{
+  int on = 0;
+  FILE *fp = fopen("/proc/sys/crypto/fips_enabled", "r");
+  if(fp) {
+    int c = fgetc(fp);
+    if(c == '1') on = 1;
+    fclose(fp);
+  }
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  if(EVP_default_properties_is_fips_enabled(NULL)) on = 1;
+#endif
+  return on;
+}
+
+#ifndef DRCM_OPENSSL_FLAVOR
+#define DRCM_OPENSSL_FLAVOR "system"
+#endif
+const char *cm_tls_flavor()
+{
+  return DRCM_OPENSSL_FLAVOR;
+}
+
 int cm_tls_resolve_groups(const char *configured, int pq_only,
                           char *out, size_t out_n, char *err, size_t err_n)
 {
   if(err && err_n) err[0] = '\0';
   int mlkem = cm_tls_has_mlkem();
+  int fips = cm_tls_fips_mode();
   if(pq_only) {
+    if(fips) {
+      snprintf(err, err_n, "tls_pq_only is not available in FIPS mode: the validated FIPS providers have no %s",
+               CM_TLS_PQ_GROUP);
+      return -1;
+    }
     if(!mlkem) {
-      snprintf(err, err_n, "tls_pq_only needs OpenSSL 3.5 or later with %s; this build uses %s",
+      snprintf(err, err_n, "tls_pq_only needs OpenSSL 3.5 or later with %s; this build uses %s"
+               " (on RHEL 8 install the drcm_server-openssl35 package)",
                CM_TLS_PQ_GROUP, cm_tls_library_version());
       return -1;
     }
@@ -89,7 +119,9 @@ int cm_tls_resolve_groups(const char *configured, int pq_only,
     return 0;
   }
   if(!configured || !configured[0]) {
-    snprintf(out, out_n, "%s", mlkem ? CM_TLS_GROUPS_DEFAULT : CM_TLS_GROUPS_CLASSIC);
+    // Post-quantum hybrid first when OpenSSL has it and FIPS mode is off;
+    // otherwise follow the system crypto policy (empty list = do not set)
+    snprintf(out, out_n, "%s", (mlkem && !fips) ? CM_TLS_GROUPS_DEFAULT : "");
     return 0;
   }
   // Check the list against the linked library

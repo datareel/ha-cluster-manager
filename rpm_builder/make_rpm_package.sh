@@ -5,11 +5,27 @@ BUILDDIR_tmp="/tmp/drcm_build_${USERNAME}"
 
 if [ -z $1 ]; then
     echo "You must supply a OS version"
-    echo "Usage: ${0} rhel8|rhel9|rhel10"
+    echo "Usage: ${0} rhel8|rhel8-openssl35|rhel9|rhel10"
     exit 1
 fi
 
 OS=${1,,}
+
+# rhel8-openssl35 (1.49): the RHEL 8 package drcm_server-openssl35, built from
+# drcm_rhel8.spec with OpenSSL 3.5 linked in statically (post-quantum TLS).
+# It provides drcm_server and conflicts with it; switch with
+# "dnf swap drcm_server drcm_server-openssl35" (stop DRCM first).
+FLAVOR=system
+SPEC_OS=${OS}
+if [ "${OS}" == "rhel8-openssl35" ]; then
+    FLAVOR=openssl35
+    SPEC_OS=rhel8
+    OPENSSL35_PREFIX=${OPENSSL35_PREFIX:-/opt/openssl-3.5}
+    if [ ! -f "${OPENSSL35_PREFIX}/lib64/libssl.a" ]; then
+        echo "ERROR - No static OpenSSL 3.5 in ${OPENSSL35_PREFIX}; run build/build_openssl35.sh first"
+        exit 1
+    fi
+fi
 
 if [ ! -z "${2}" ]; then BUILDDIR_tmp="${2}"; fi
  
@@ -37,7 +53,13 @@ if [ ! -d ${BUILDDIR_tmp}/rpmbuild/SPECS ]; then
     exit 1
 fi
 
-cp -fv drcm_${OS}.spec ${BUILDDIR_tmp}/rpmbuild/SPECS/drcm.spec
+cp -fv drcm_${SPEC_OS}.spec ${BUILDDIR_tmp}/rpmbuild/SPECS/drcm.spec
+if [ "${FLAVOR}" == "openssl35" ]; then
+    sed -i -e 's/^Name: drcm_server$/Name: drcm_server-openssl35\nProvides: drcm_server = %{version}-%{release}\nConflicts: drcm_server/' \
+           -e 's/^Summary: .*/Summary: Datareel Cluster Manager RPM, OpenSSL 3.5 static build (post-quantum TLS)/' \
+           ${BUILDDIR_tmp}/rpmbuild/SPECS/drcm.spec
+    grep -q '^Name: drcm_server-openssl35' ${BUILDDIR_tmp}/rpmbuild/SPECS/drcm.spec || { echo "ERROR - spec Name not changed"; exit 1; }
+fi
 Version=$(head -15 ${BUILDDIR_tmp}/rpmbuild/SPECS/drcm.spec | grep 'Version:' | awk -F: '{ print $2 }')
 Version=$( echo "${Version}" | sed s/' '//g)
 Release=$(head -15 ${BUILDDIR_tmp}/rpmbuild/SPECS/drcm.spec | grep 'Release:' | awk -F: '{ print $2 }')
@@ -54,31 +76,43 @@ fi
 source ../../env/gnu_env.sh
 cd ../drcm_server
 
-# RHEL 8's system OpenSSL is 1.1.1. From 1.49 the RHEL 8 RPM is built with
-# OpenSSL 3.5 from EPEL (openssl3-devel, pkg-config name openssl3). Override
-# with DRCM_OPENSSL_MAKE_ARGS, for example "OPENSSL_PREFIX=/opt/openssl-3.5
-# OPENSSL_STATIC=1" for a static build.
+# OpenSSL per package (1.49):
+#   rhel8            system OpenSSL 1.1.1 (FIPS-validated by Red Hat, classic TLS)
+#   rhel8-openssl35  static OpenSSL 3.5 (build/build_openssl35.sh), post-quantum TLS
+#   rhel9, rhel10    system OpenSSL 3.5
 OSSL_ARGS=""
-if [ "${OS}" == "rhel8" ]; then
-    OSSL_ARGS="${DRCM_OPENSSL_MAKE_ARGS:-OPENSSL_PC=openssl3}"
+if [ "${FLAVOR}" == "openssl35" ]; then
+    OSSL_ARGS="OPENSSL_PREFIX=${OPENSSL35_PREFIX} OPENSSL_STATIC=1"
 fi
 make clean_lib
 make clean
 make ${OSSL_ARGS}
 
-# The binary must use OpenSSL 3.5 or later (post-quantum TLS key exchange)
 if [ ! -x drcm_server ]; then
     echo "ERROR - drcm_server was not built"
     exit 1
 fi
-if readelf -d drcm_server | grep -q 'libssl.so.1'; then
-    echo "ERROR - drcm_server links OpenSSL 1.x; RHEL 8 needs openssl3-devel (EPEL) or DRCM_OPENSSL_MAKE_ARGS"
-    exit 1
-fi
-OSSL_VER=$(./drcm_server --version | sed -n 's/^Linked with: OpenSSL \([0-9][0-9.]*\).*/\1/p')
-case "${OSSL_VER}" in
-    3.[5-9]*|3.[1-9][0-9]*|[4-9].*) echo "drcm_server is linked with OpenSSL ${OSSL_VER}" ;;
-    *) echo "ERROR - drcm_server is linked with OpenSSL '${OSSL_VER}', 3.5 or later is required"; exit 1 ;;
+LINKED=$(./drcm_server --version | grep '^Linked with:')
+OSSL_VER=$(echo "${LINKED}" | sed -n 's/^Linked with: OpenSSL \([0-9][0-9.]*\).*/\1/p')
+echo "drcm_server ${LINKED}"
+case "${OS}" in
+    rhel8)
+        readelf -d drcm_server | grep -q 'libssl.so.1.1' || { echo "ERROR - the rhel8 package must link the system OpenSSL 1.1.1"; exit 1; }
+        echo "${LINKED}" | grep -q ', system ' || { echo "ERROR - not a system OpenSSL build"; exit 1; } ;;
+    rhel8-openssl35)
+        if readelf -d drcm_server | grep -q 'NEEDED.*lib\(ssl\|crypto\)'; then
+            echo "ERROR - the openssl35 package must not link a shared libssl/libcrypto"; exit 1
+        fi
+        echo "${LINKED}" | grep -q ', static ' || { echo "ERROR - not a static OpenSSL build"; exit 1; }
+        case "${OSSL_VER}" in 3.5.*) ;; *) echo "ERROR - OpenSSL ${OSSL_VER}, 3.5 required"; exit 1 ;; esac ;;
+    *)
+        if readelf -d drcm_server | grep -q 'libssl.so.1'; then
+            echo "ERROR - drcm_server links OpenSSL 1.x"; exit 1
+        fi
+        case "${OSSL_VER}" in
+            3.[5-9]*|3.[1-9][0-9]*|[4-9].*) ;;
+            *) echo "ERROR - OpenSSL '${OSSL_VER}', 3.5 or later is required"; exit 1 ;;
+        esac ;;
 esac
 
 mkdir -p ${Build}/etc/drcm

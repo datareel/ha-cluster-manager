@@ -94,9 +94,10 @@ void VersionMessage()
   cout << ProgramDescription << " version " << VersionString  << "\n" 
 	      << flush;
   cout << "Produced by: " << ProducedBy << "\n" << flush;
-  cout << "Linked with: " << cm_tls_library_version()
+  cout << "Linked with: " << cm_tls_library_version() << ", " << cm_tls_flavor()
        << (cm_tls_has_mlkem() ? " (post-quantum TLS key exchange: X25519MLKEM768)"
                               : " (no post-quantum TLS key exchange)") << "\n" << flush;
+  if(cm_tls_fips_mode()) cout << "FIPS mode: on (TLS key exchange follows the system crypto policy)" << "\n" << flush;
   cout << "\n" << flush;
 }
 
