@@ -1,0 +1,275 @@
+# DRCM (DataReel Cluster Manager): guide for AI agents
+
+This file tells an AI coding or operations agent (Gemini CLI, Claude Code,
+GitHub Copilot, Codex and others) how to work with DRCM: install it, set up
+a cluster, and upgrade old releases such as 1.37 to the current release,
+1.48. `GEMINI.md` and `CLAUDE.md` in this folder only import this file.
+
+The full manual is `docs/drcm.txt` (also `docs/drcm.html` and
+https://datareel.com/drcm/admin_guide.html). This file points to its
+sections instead of repeating them. When this file and the manual
+disagree, the manual and the code win: say so to the person you work for.
+
+## 1. Rules for agents (read these first)
+
+DRCM moves floating IPs, services, file systems and cron jobs between
+production servers. A wrong step causes an outage or a split brain (two
+nodes running the same service). Follow these rules on every task:
+
+1. **One node at a time.** Never run a changing command on more than one
+   node in one step, and never in a loop over nodes, unless the person has
+   confirmed that exact step for those nodes.
+2. **Show, then run.** Before any command that changes a node (dnf, rpm,
+   systemctl start/stop/restart, edits under /etc, firewall-cmd, nmcli),
+   print the command and the node name and wait for a yes.
+3. **Back up before changing.** Copy `/etc/drcm`, `/etc/sysconfig/drcm_server`
+   and any unit file you will touch into a dated backup folder first (see
+   5.3). Never delete; move aside.
+4. **Stop on any failed check.** If a check fails or the output is not what
+   this guide says to expect, stop and report. Do not improvise a fix on a
+   production cluster.
+5. **Never touch the auth keys' contents.** Do not print, copy over the
+   network, regenerate or "fix" `/etc/drcm/.auth/authkey`. Compare nodes
+   with `authkey.sha1` only. A new key on one node splits the cluster.
+6. **Never weaken the safety settings silently.** Do not turn off firewalld,
+   SELinux, `isolation_check`, `takeover_check`, quorum or TLS, and do not
+   set `StrictHostKeyChecking=no`, to make something work. Report instead.
+7. **Read-only first.** Start every task with the read-only checks:
+   `tools/drcm_preflight.sh`, `drcm_server --client --command=cm_stat`,
+   `--check-config`, `rpm -q`, `systemctl status`, the log in
+   `/var/log/drcm/`.
+8. **No secrets or site data in files you write** (host names, addresses,
+   keys, passwords), unless the person asks for that file on their own
+   systems.
+9. **Keep a log.** List each command you ran, on which node, and its result,
+   and give it to the person at the end.
+
+## 2. What DRCM is
+
+DRCM builds high availability Linux clusters of 2 or more nodes (servers or
+workstations, on premises, in the cloud, or both). Each node runs
+`drcm_server` as a systemd service. Nodes exchange authenticated keep alive
+messages; when a node stops answering, its peers take over its resources
+(floating IPs, services, applications, file systems, cron jobs) in the order
+set in the config file. A node can be put in standby for maintenance
+(`--command=standby`, 1.43 and later).
+
+| Item | Location (1.48) |
+| --- | --- |
+| Server binary | `/usr/sbin/drcm_server` |
+| Config file | `/etc/drcm/cm.cfg` (override with `CFGFILE` in `/etc/sysconfig/drcm_server`) |
+| Auth keys | `/etc/drcm/.auth/authkey` (2048 random bytes) and `authkey.sha1` (40 hex characters); folder mode 700, files 600; identical on every node |
+| Resource scripts | `/etc/drcm/resources/*.sh` (floating IPs: `ipv4addr_nmcli.sh` on RHEL 8 and later) |
+| Helper scripts | `/etc/drcm/utils/`, `/etc/drcm/file_system_sync/`, `/etc/drcm/my_cluster_conf/` |
+| systemd unit | `/usr/lib/systemd/system/drcm_server.service` (Type=simple, KillMode=process) |
+| Extra arguments | `ARGS=` in `/etc/sysconfig/drcm_server` |
+| Logs | `/var/log/drcm/drcm.log` and the resource logs next to it; `journalctl -u drcm_server` |
+| State | `/var/lib/drcm/` (standby file, file system sync flags) |
+| Port | `udpport` / `tcpport` in cm.cfg (examples use 53897) |
+
+Read-only status commands (run on a node):
+
+```
+drcm_server --version
+drcm_server --client --command=cm_stat     # this node's view: nodes, resources, owners
+drcm_server --client --command=rstats      # resource stats from every node
+drcm_server --check-config --config-file=/etc/drcm/cm.cfg
+```
+
+## 3. Repository layout and building (development work)
+
+| Path | Contents |
+| --- | --- |
+| `drcm_server/` | the server and client (C++); `make` builds `drcm_server` |
+| `include/`, `src/` | bundled DataReel library files (6.4.1); resync with `build/sync_datareel.sh` |
+| `etc/` | files installed under `/etc/drcm` (example configs, resource and helper scripts) |
+| `systemd_init/` | the systemd unit |
+| `rpm_builder/` | RPM specs (`drcm_rhel8/9/10.spec`) and `make_rhelN_rpm.sh` |
+| `test_apps/standby_test/` | podman cluster tests (`setup.sh`, `run_tests.sh`, `TRANSPORT=tcp`) |
+| `tools/` | `drcm_preflight.sh` (upgrade checks), `migrate_cfg.py` (TCP/TLS and quorum settings), `drcm_gui.py` |
+| `docs/` | administrator guide (`drcm.txt`, `drcm.html`) |
+
+Build: `cd drcm_server && make` (needs gcc-c++, make, openssl-devel).
+RPMs: build inside a UBI 8, 9 or 10 container with `cd rpm_builder &&
+bash make_rpm_package.sh rhel8` (or rhel9, rhel10). Run the podman suites
+one at a time: they share container names. Every release bumps
+`version.txt`, `VersionString` in `drcm_server/m_help.cpp`, `Version:` and
+`%changelog` in the three specs, the man pages, README.txt, the guide and
+CHANGELOG.md.
+
+## 4. New install on RHEL 8, 9 or 10
+
+Manual: sections 3 and 4 of `docs/drcm.txt`.
+
+1. Download the RPM for the OS (`drcm_server-1.48-1.el8.x86_64.rpm`, el9 or
+   el10) and its `.sha256sum` from https://datareel.com/downloads/drcm_downloads.php.
+   Check it: `sha256sum -c drcm_server-1.48-1.el8.x86_64.rpm.sha256sum`.
+   Stop if it fails.
+2. `dnf -y install ./drcm_server-1.48-1.el8.x86_64.rpm` on each node (one
+   node at a time, rule 1).
+3. Make the auth keys on ONE node, then copy the two files to the others
+   over SSH (the person runs the copy or confirms it):
+   ```
+   mkdir -p /etc/drcm/.auth && chmod 700 /etc/drcm/.auth
+   dd if=/dev/urandom bs=1024 count=2 of=/etc/drcm/.auth/authkey
+   sha1sum /etc/drcm/.auth/authkey | cut -c1-40 > /etc/drcm/.auth/authkey.sha1
+   chmod 600 /etc/drcm/.auth/authkey /etc/drcm/.auth/authkey.sha1
+   ```
+4. Write `/etc/drcm/cm.cfg` from `/etc/drcm/cm_2_node_example.cfg` or
+   `cm_4_node_example.cfg` (manual sections 5 and 6). Use
+   `ipv4addr_nmcli.sh` for floating IPs on RHEL 8 and later. The file is the
+   same on every node.
+5. Open the DRCM port in firewalld from each peer (manual section 7):
+   `firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="PEER/32" port port="53897" protocol="udp" accept'`
+   (and `tcp` for the TCP transport), then `firewall-cmd --reload`.
+6. `drcm_server --check-config` on every node: no ERROR lines.
+7. Start the primary first, then the others: `systemctl enable --now drcm_server`.
+   Check `cm_stat` on every node: every node is up, each resource has one
+   owner.
+
+## 5. Upgrading 1.37 (or any 1.41 or older) to 1.48
+
+### 5.1 What changes, and what does not
+
+Verified by installing the 1.37 RPM on RHEL 8 (UBI 8.10) and running
+`dnf upgrade` to the 1.48 el8 RPM:
+
+- **No rolling upgrade.** Since 1.42 every cluster message is an
+  authenticated v2 frame. A 1.42 or later node and a 1.41 or older node do
+  not understand each other: each sees the other as dead and takes over
+  its resources. **Stop DRCM on every node of the cluster, upgrade every
+  node, then start them.** Plan a maintenance window; the clustered
+  services are down while DRCM is stopped (unless the config keeps them
+  with `keep_services`, `keep_applications` or `keep_filesystems`).
+- **Never run `dnf upgrade` on a node where DRCM is running.** Both the
+  1.37 and the 1.48 package scripts run `systemctl try-restart
+  drcm_server`, so a running node restarts straight into 1.48 next to 1.37
+  peers.
+- **Package version order is fine.** The 1.37 RPMs are named
+  `...1.37-1.el7.x86_64.x86_64.rpm` (Release `1.el7.x86_64`). Version 1.48
+  is higher than 1.37, so `dnf upgrade` takes the el8 1.48 RPM.
+- **Kept unchanged:** `/etc/drcm/cm.cfg` (1.48 reads 1.37 config files;
+  the old key spellings `ipapddrs_check`, `ipaddr_check` and `logfile_name`
+  are still accepted), the auth keys (same files and format), the port,
+  and `/etc/sysconfig/drcm_server` (same file; `CMPROC` and `CMPROCNAME`
+  are no longer used).
+- **Service files:** the 1.37 package's `/etc/systemd/system/drcm_server.service`
+  (which ran `/etc/rc.d/init.d/drcm_server`) and the init script are
+  removed; 1.48 installs `/usr/lib/systemd/system/drcm_server.service`. If
+  DRCM 1.37 was built from source instead of installed as an RPM, those
+  two files are not removed and the old unit file would still win: move
+  them to the backup folder (5.3, step 4).
+- **Edited package files:**
+  - Files under `/etc/drcm/resources/`, `/etc/drcm/crontabs/` and
+    `/etc/drcm/my_cluster_conf/my_cluster_info.sh` that you edited are
+    **kept**; the 1.48 version is saved next to them as `.rpmnew`.
+  - Other edited files (for example `/etc/drcm/utils/send_alert.sh` or
+    the `file_system_sync` scripts) are **replaced** by the 1.48 version;
+    your copy is saved as `.rpmsave`. Re-apply the site changes.
+  - `tools/drcm_preflight.sh` lists both kinds for each node.
+- **`/etc/drcm/.auth` is reset to root:root mode 700** by the RPM. Set a
+  group again if the site used one.
+- **Floating IPs:** a 1.37 config that uses `/etc/drcm/resources/ipv4addr.sh`
+  keeps working (it uses `ip addr`). On RHEL 8, `ipv4addr_nmcli.sh` is the
+  NetworkManager way (manual section 12); switch later as its own change,
+  not in the upgrade window.
+- **New in 1.42 to 1.48, all optional and off by default:** TCP + TLS
+  transport and witness quorum (`tools/migrate_cfg.py`), split brain
+  protection (`isolation_check`, `takeover_check`), node standby and timed
+  and remote standby, file replication over the internet. See CHANGELOG.md.
+
+### 5.2 Before the window (read-only, on every node)
+
+1. Copy `tools/drcm_preflight.sh` and the 1.48 RPM with its `.sha256sum`
+   to each node (for example `/root/drcm_148/`).
+2. Run it on each node and save the output:
+   ```
+   bash /root/drcm_148/drcm_preflight.sh --rpm=/root/drcm_148/drcm_server-1.48-1.el8.x86_64.rpm | tee /root/drcm_148/preflight_$(hostname -s).txt
+   ```
+   It checks the OS, the installed package, unit files, the config file
+   (with the 1.48 binary's `--check-config`, unpacked to a temporary
+   folder), the auth keys, edited package files, and shows `cm_stat`. It
+   changes nothing. A WARN that DRCM is running is expected at this stage.
+3. Compare across nodes: the `authkey sha1` lines must be identical, every
+   node must accept the config with the 1.48 binary, and `cm_stat` must
+   show a healthy cluster. Fix every FAIL before the window. Hand every
+   WARN to the person.
+4. Note which node is primary for which resources (from `cm_stat`), and the
+   stop order: backup nodes first, the primary last. Start order: primary
+   first.
+
+### 5.3 In the window (one step at a time, confirm each)
+
+1. **Back up each node:**
+   ```
+   B=/root/drcm_backup_$(date +%Y%m%d_%H%M); mkdir -p $B
+   cp -a /etc/drcm /etc/sysconfig/drcm_server $B/
+   cp -a /etc/systemd/system/drcm_server.service* /etc/rc.d/init.d/drcm_server $B/ 2>/dev/null
+   rpm -q drcm_server > $B/package.txt
+   ```
+2. **Stop DRCM on every node**, backup nodes first, the primary last:
+   `systemctl stop drcm_server`. Check `systemctl is-active drcm_server`
+   says `inactive` and `pgrep -x drcm_server` prints nothing, on every node,
+   before going on. Check the floating IPs are released (`ip -4 addr`).
+3. **Upgrade each node** (now safe one at a time, every node is stopped):
+   `dnf -y upgrade /root/drcm_148/drcm_server-1.48-1.el8.x86_64.rpm`
+   (use `dnf -y install` if `rpm -q drcm_server` showed no package).
+4. **Unit files:** if the pre-flight reported an unowned
+   `/etc/systemd/system/drcm_server.service` or `/etc/rc.d/init.d/drcm_server`,
+   move them into the backup folder now. Then `systemctl daemon-reload`.
+   Check: `systemctl cat drcm_server` shows
+   `/usr/lib/systemd/system/drcm_server.service` with
+   `ExecStart=/usr/sbin/drcm_server --config-file=${CFGFILE} $ARGS`.
+5. **Edited files:** `find /etc/drcm /etc/sysconfig -name '*.rpmnew' -o -name '*.rpmsave'`.
+   For each `.rpmsave`, re-apply the site change to the new file. For each
+   `.rpmnew`, compare with `diff` and tell the person what 1.48 changed; keep
+   the site file unless they decide otherwise. Re-apply any group on
+   `/etc/drcm/.auth`.
+6. **Check every node:** `drcm_server --version` says 1.48;
+   `drcm_server --check-config` has no ERROR lines; `authkey.sha1` is the same
+   as before.
+7. **Start the primary**: `systemctl start drcm_server`. Wait until
+   `cm_stat` on it shows its resources up (about a minute). Then start the
+   other nodes one by one.
+8. **Verify:** on every node `cm_stat` shows all nodes alive and each
+   resource with exactly one owner; the floating IPs answer; the services
+   run; `/var/log/drcm/drcm.log` and `journalctl -u drcm_server` have no
+   repeated errors (rejected frames mean an auth key or version mismatch).
+9. Optional, with the person's OK: a failover test. Put the primary in
+   standby (`drcm_server --client --command=standby`), check the backup
+   takes the resources, then `--command=unstandby` and check they come
+   back.
+
+### 5.4 Roll back (all nodes again, never just one)
+
+A 1.48 node cannot run next to 1.37 nodes, so a rollback is the same as the
+upgrade in reverse: stop DRCM on every node; on each node
+`rpm -Uvh --oldpackage <the 1.37 RPM>` (or reinstall the source build), copy
+the files back from the backup folder (`/etc/drcm`, the sysconfig file, the
+old unit file and init script), `systemctl daemon-reload`; start the
+primary, then the others.
+
+### 5.5 Upgrading from 1.42 to 1.47
+
+1.42 and later speak the same protocol, so a rolling upgrade works: on
+each node in turn, put it in standby (1.43 and later), stop DRCM, back up,
+`dnf upgrade`, check, start, unstandby, and wait for `cm_stat` to be
+healthy before the next node. 1.42 nodes ignore standby: upgrade backup
+nodes first. Remote standby (`-n"node"`) needs 1.47 on both nodes.
+
+## 6. After the upgrade (separate changes, each with its own OK)
+
+- Floating IPs: move from `ipv4addr.sh` to `ipv4addr_nmcli.sh` (manual
+  sections 6 and 12).
+- TCP + TLS and witness quorum: `python3 tools/migrate_cfg.py --tcp ...
+  /etc/drcm/cm.cfg -o cm.cfg.new`, review, then roll out (manual sections
+  9, 10 and 13).
+- Split brain protection for clusters across sites: `isolation_check`,
+  `takeover_check` (CHANGELOG.md, the 1.43 entry; the manual
+  does not cover them in detail yet).
+
+## 7. Report back
+
+End every task with: the nodes touched, each command and its result, the
+pre-flight summaries, every WARN and what was decided, the `.rpmnew` and
+`.rpmsave` files and what was done with them, and the final `cm_stat`.
