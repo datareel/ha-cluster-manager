@@ -5,10 +5,17 @@ in this file. The format follows [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
-## [1.49] - 2026-11-18
+Planned for 1.50:
+- drcm_server-openssl35 reads the RHEL system crypto policy itself (the
+  static OpenSSL does not load it), so it follows DEFAULT, FUTURE and FIPS
+  like the system build, in the same way as fcrypt's static RHEL 8 build.
 
-Post-quantum TLS, the RHEL 8 RPM on OpenSSL 3.5, the AI-assisted guide
-and the full document set in the packages. 1.49 nodes work with 1.42 and
+## [1.49] - 2026-11-19
+
+Post-quantum TLS, two RHEL 8 packages (drcm_server on the system OpenSSL
+1.1.1, recommended, and drcm_server-openssl35 with OpenSSL 3.5 built in),
+FIPS-aware TLS settings, the AI-assisted guide, the white paper and the
+full document set in the packages. 1.49 nodes work with 1.42 and
 later nodes; from 1.41 or older (for example 1.37), stop every node,
 upgrade every node, then start them (see AGENTS.md section 5).
 
@@ -76,16 +83,23 @@ upgrade every node, then start them (see AGENTS.md section 5).
 ### Fixed
 - The HTML administrator guide's footer still said 1.42.
 
-### Tested (11/18/2026)
+### Tested (11/18-19/2026)
 - standby_test with 1.42, 1.44 and 1.46 servers for the mixed version
   tests: UDP 124 of 124, TCP + TLS 126 of 126 (RHEL 10, OpenSSL 3.5.8);
   every TCP connection negotiated TLS 1.3 with X25519MLKEM768.
-- RHEL 8 RPM built on RHEL 8.10 with EPEL openssl3 3.5.5; in UBI 8: a
-  fresh install, `dnf upgrade` from 1.48 and from 1.37 (config and keys
-  kept, old unit file and init script removed), and a clean refusal
-  without EPEL.
-- A build against RHEL 8's OpenSSL 1.1.1 falls back to X25519 with an
-  info note, and `tls_pq_only` is refused there.
+- RHEL 8 (8.10, UBI 8 containers), both packages: fresh installs;
+  `dnf upgrade` from 1.48 and from 1.37 stays on drcm_server (config and
+  keys kept, the old unit file and init script removed); installing both
+  is refused; switching with `dnf install --allowerasing` both ways keeps
+  the service enabled and cm.cfg, keys and edited scripts unchanged.
+- OpenSSL 3.5.9 static build: its own test suite passed (4443 tests).
+- RHEL 8 in FIPS mode, both packages, two-node TCP clusters (system,
+  static and mixed): TLS 1.3 with P-256, HMAC authentication (ping) and
+  failover work; `tls_pq_only` is refused; the pre-flight refuses
+  drcm_server-openssl35 on a FIPS host.
+- A RHEL 8 OpenSSL 1.1.1k client and a RHEL 9 OpenSSL 3.5.9 server
+  offering X25519MLKEM768:X25519 negotiate TLS 1.3 with X25519.
+- Every RPM's Build Host is build.datareel.com.
 
 ## [1.48] - 2026-11-18
 
