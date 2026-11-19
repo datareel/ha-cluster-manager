@@ -563,7 +563,10 @@ node: root can read the cluster key and run any command.</p>
 <li><strong>FIPS mode.</strong> On a host in FIPS mode DRCM sets no group list and the
   system crypto policy picks FIPS-approved groups. The validated FIPS
   providers have no ML-KEM yet, so FIPS mode means a classic key exchange
-  for now (<strong>1.49</strong>). OpenSSL's 3.1.2 FIPS provider (CMVP certificate
+  for now (<strong>1.49</strong>). The static OpenSSL of <code>drcm_server-openssl35</code> does
+  not read the system crypto policy, so in FIPS mode that build limits the
+  key exchange to P-256, P-384 and P-521 itself and logs a warning; its
+  OpenSSL is still not a validated module. OpenSSL's 3.1.2 FIPS provider (CMVP certificate
   #4985) is validated and works with OpenSSL 3.5; a validated provider
   with ML-KEM would allow both.</li>
 <li><strong>Certificates.</strong> Node certificates (RSA or ECDSA) authenticate live

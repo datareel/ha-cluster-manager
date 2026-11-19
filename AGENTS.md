@@ -184,7 +184,9 @@ Manual: sections 3 and 4 of `docs/drcm.txt`.
      OpenSSL 3.5 built in, post-quantum TLS key exchange. Suggest it only
      for hosts not in FIPS mode whose cluster uses `cluster_transport =
      tcp` across networks the site does not control; it gives nothing with
-     the UDP transport. DataReel re-releases it for OpenSSL fixes.
+     the UDP transport. DataReel re-releases it for OpenSSL fixes. On a
+     FIPS host it limits TLS to P-256/P-384/P-521 and warns, but it is
+     still not a validated module: never propose it there.
 3. Make the auth keys on ONE node, then copy the two files to the others
    over SSH (the person runs the copy or confirms it):
    ```

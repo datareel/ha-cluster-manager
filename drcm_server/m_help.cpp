@@ -97,7 +97,12 @@ void VersionMessage()
   cout << "Linked with: " << cm_tls_library_version() << ", " << cm_tls_flavor()
        << (cm_tls_has_mlkem() ? " (post-quantum TLS key exchange: X25519MLKEM768)"
                               : " (no post-quantum TLS key exchange)") << "\n" << flush;
-  if(cm_tls_fips_mode()) cout << "FIPS mode: on (TLS key exchange follows the system crypto policy)" << "\n" << flush;
+  if(cm_tls_fips_mode()) {
+    if(cm_tls_follows_system_policy())
+      cout << "FIPS mode: on (TLS key exchange follows the system crypto policy)" << "\n" << flush;
+    else
+      cout << "FIPS mode: on (built-in OpenSSL is not a validated FIPS module; key exchange limited to P-256, P-384, P-521)" << "\n" << flush;
+  }
   cout << "\n" << flush;
 }
 

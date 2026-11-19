@@ -46,6 +46,9 @@ void cm_tls_normalize_fingerprint(const char *in, char *out, size_t out_n);
 // FIPS mode off).
 #define CM_TLS_PQ_GROUP        "X25519MLKEM768"
 #define CM_TLS_GROUPS_DEFAULT  "X25519MLKEM768:X25519"
+// FIPS mode with an OpenSSL that does not read the RHEL system crypto
+// policy (static or custom builds): FIPS-approved groups only
+#define CM_TLS_GROUPS_FIPS     "P-256:P-384:P-521"
 
 // 1 if the linked OpenSSL can use the ML-KEM hybrid group
 int cm_tls_has_mlkem();
@@ -56,6 +59,9 @@ int cm_tls_fips_mode();
 // How OpenSSL is linked: "system" (the OS library), "static" (built in) or
 // "custom" (another shared OpenSSL, OPENSSL_PC / OPENSSL_PREFIX)
 const char *cm_tls_flavor();
+// 1 if the linked OpenSSL follows the RHEL system crypto policy (the OS
+// library); static and custom builds do not read it
+int cm_tls_follows_system_policy();
 // The linked OpenSSL version text, e.g. "OpenSSL 3.5.9 30 Sep 2026"
 const char *cm_tls_library_version();
 // The group list to use for a configured value (empty = default) and mode.

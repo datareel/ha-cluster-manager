@@ -26,7 +26,10 @@ upgrade every node, then start them (see AGENTS.md section 5).
   it has the post-quantum key exchange.
 - In FIPS mode (`/proc/sys/crypto/fips_enabled` or OpenSSL's FIPS
   properties) DRCM sets no TLS group list and the system crypto policy
-  chooses FIPS-approved groups; `tls_pq_only` is refused there.
+  chooses FIPS-approved groups; `tls_pq_only` is refused there. A
+  static or custom OpenSSL does not read the system policy, so in FIPS
+  mode those builds set P-256, P-384 and P-521 themselves and warn that
+  their OpenSSL is not a validated module.
   `--version` shows the OpenSSL flavor (system, static or custom) and
   FIPS mode.
 - Build: `make OPENSSL_PC=name` (pkg-config, with an rpath) or

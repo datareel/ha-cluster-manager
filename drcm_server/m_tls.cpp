@@ -93,6 +93,11 @@ const char *cm_tls_flavor()
   return DRCM_OPENSSL_FLAVOR;
 }
 
+int cm_tls_follows_system_policy()
+{
+  return strcmp(DRCM_OPENSSL_FLAVOR, "system") == 0;
+}
+
 int cm_tls_resolve_groups(const char *configured, int pq_only,
                           char *out, size_t out_n, char *err, size_t err_n)
 {
@@ -119,9 +124,12 @@ int cm_tls_resolve_groups(const char *configured, int pq_only,
     return 0;
   }
   if(!configured || !configured[0]) {
-    // Post-quantum hybrid first when OpenSSL has it and FIPS mode is off;
-    // otherwise follow the system crypto policy (empty list = do not set)
-    snprintf(out, out_n, "%s", (mlkem && !fips) ? CM_TLS_GROUPS_DEFAULT : "");
+    // Post-quantum hybrid first when OpenSSL has it and FIPS mode is off.
+    // In FIPS mode the system OpenSSL follows the system crypto policy
+    // (empty list = do not set); a static or custom OpenSSL does not read
+    // that policy, so it gets the FIPS-approved groups explicitly.
+    if(fips) snprintf(out, out_n, "%s", cm_tls_follows_system_policy() ? "" : CM_TLS_GROUPS_FIPS);
+    else snprintf(out, out_n, "%s", mlkem ? CM_TLS_GROUPS_DEFAULT : "");
     return 0;
   }
   // Check the list against the linked library

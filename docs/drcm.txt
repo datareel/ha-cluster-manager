@@ -547,7 +547,11 @@ Post-quantum key exchange (1.49):
 * FIPS mode: DRCM sets no group list and the system crypto policy
   chooses FIPS-approved groups; the validated FIPS providers have no
   ML-KEM yet, so there is no post-quantum hybrid in FIPS mode, and
-  tls_pq_only is refused. On RHEL 8 in FIPS mode use drcm_server.
+  tls_pq_only is refused. On RHEL 8 in FIPS mode use drcm_server. The
+  static OpenSSL of drcm_server-openssl35 does not read the system crypto
+  policy; on a FIPS-mode host it limits the key exchange to P-256, P-384
+  and P-521 and logs a warning, but it is still not a validated FIPS
+  module.
 * The log shows the TLS version and key exchange of each peer when it
   is first seen and when it changes, for example
   "TLS to cmnode2: TLSv1.3, key exchange X25519MLKEM768 (post-quantum

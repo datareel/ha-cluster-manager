@@ -150,7 +150,7 @@ void cm_tls_note_session(const char *direction, const char *peer, const CMTlsCon
   message << clear << "TLS " << direction << " " << (peer ? peer : "?") << ": "
 	  << conn.tls_version() << ", key exchange " << conn.tls_group();
   if(strstr(conn.tls_group(), "MLKEM")) message << " (post-quantum hybrid)";
-  else if(cm_tls_fips_mode()) message << " (classic: FIPS mode, system crypto policy)";
+  else if(cm_tls_fips_mode()) message << (cm_tls_follows_system_policy() ? " (classic: FIPS mode, system crypto policy)" : " (classic: FIPS mode, FIPS-approved groups)");
   else if(cm_tls_has_mlkem()) message << " (classic: the peer did not offer ML-KEM)";
   else message << " (classic: this OpenSSL has no ML-KEM)";
   LogMessage(message.c_str());

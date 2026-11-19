@@ -127,6 +127,9 @@ On RHEL 8 there are two 1.49 packages; install one of them:
                          No benefit with the UDP transport (UDP traffic is
                          not encrypted with either package). DataReel
                          re-releases it for OpenSSL 3.5 security fixes.
+If drcm_server-openssl35 is run on a FIPS-mode host anyway, it limits the
+TLS key exchange to P-256, P-384 and P-521 and logs a warning, but its
+built-in OpenSSL is still not a validated FIPS module.
 Switch between them with DRCM stopped:
   dnf install --allowerasing ./drcm_server-openssl35-1.49-1.el8.x86_64.rpm
   dnf install --allowerasing ./drcm_server-1.49-1.el8.x86_64.rpm    (back)

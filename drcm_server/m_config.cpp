@@ -1728,8 +1728,11 @@ int LoadOrBuildConfigFile()
 	if(servercfg->tls_pq_only) servercfg->tls_min_version = 3;
 	NT_print("TLS library", cm_tls_library_version(), cm_tls_flavor());
 	NT_print("TLS key exchange groups", gbuf[0] ? gbuf : "system crypto policy");
-	if(cm_tls_fips_mode()) {
+	if(cm_tls_fips_mode() && cm_tls_follows_system_policy()) {
 	  NT_print("INFO - FIPS mode: TLS key exchange follows the system crypto policy (FIPS-approved groups, no post-quantum hybrid)");
+	}
+	else if(cm_tls_fips_mode()) {
+	  NT_print("WARNING - FIPS mode, but this drcm_server has its own OpenSSL, which is not a validated FIPS module; TLS key exchange is limited to P-256, P-384 and P-521. On FIPS hosts use the drcm_server package (system OpenSSL)");
 	}
 	else if(!cm_tls_has_mlkem()) {
 	  NT_print("INFO - This OpenSSL has no post-quantum key exchange (X25519MLKEM768 needs OpenSSL 3.5 or later; on RHEL 8 use the drcm_server-openssl35 package)");
