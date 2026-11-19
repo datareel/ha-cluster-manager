@@ -238,13 +238,16 @@ node: root can read the cluster key and run any command.
   The RPM installs a native systemd unit.
 - **OpenSSL per platform:** RHEL 10 and RHEL 9 use the system OpenSSL 3.5.
   RHEL 8 has two packages from **1.49**:
-  - `drcm_server` links RHEL 8's system OpenSSL 1.1.1, which Red Hat has
-    FIPS-validated; classic TLS key exchange. `dnf upgrade` from 1.37 or
-    1.48 stays on this package, and it is the one for hosts in FIPS mode.
-  - `drcm_server-openssl35` has OpenSSL 3.5 LTS built in (static, from the
-    checksum-verified upstream release) and the post-quantum key exchange,
-    with nothing extra to install. It is not for FIPS mode, and DataReel
-    re-releases it for OpenSSL 3.5 security fixes.
+  - `drcm_server` (**recommended**) links RHEL 8's system OpenSSL 1.1.1,
+    which Red Hat has FIPS-validated; classic TLS key exchange. `dnf
+    upgrade` from 1.37 or 1.48 stays on this package, its OpenSSL fixes
+    come with `dnf update`, and it is the one for hosts in FIPS mode.
+  - `drcm_server-openssl35` (optional) has OpenSSL 3.5 LTS built in
+    (static, from the checksum-verified upstream release) and the
+    post-quantum key exchange. It is meant for hosts not in FIPS mode that
+    run the TCP + TLS transport across networks the site does not control;
+    with the UDP transport it adds nothing. DataReel re-releases it for
+    OpenSSL 3.5 security fixes.
   - `dnf install --allowerasing` with the other RPM (or `dnf swap` from a
     repository) moves a node between the two while DRCM is stopped,
     keeping the configuration, keys and service state.

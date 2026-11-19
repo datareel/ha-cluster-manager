@@ -52,11 +52,12 @@ upgrade every node, then start them (see AGENTS.md section 5).
   `.html` and `.txt`, made with `tools/make_white_paper.py`.
 
 ### Changed
-- RHEL 8 has two packages. `drcm_server` links RHEL 8's system OpenSSL
-  1.1.1 (FIPS-validated by Red Hat, classic TLS) and is where `dnf
-  upgrade` from 1.37 or 1.48 lands. `drcm_server-openssl35` has OpenSSL
-  3.5.9 built in statically, with the post-quantum key exchange, for
-  hosts not in FIPS mode; it provides and conflicts with `drcm_server`,
+- RHEL 8 has two packages. `drcm_server`, the recommended default, links
+  RHEL 8's system OpenSSL 1.1.1 (FIPS-validated by Red Hat, classic TLS)
+  and is where `dnf upgrade` from 1.37 or 1.48 lands.
+  `drcm_server-openssl35`, optional, has OpenSSL 3.5.9 built in
+  statically, with the post-quantum key exchange, for hosts not in FIPS
+  mode that use the TCP transport (no benefit with UDP); it provides and conflicts with `drcm_server`,
   and `dnf install --allowerasing` with the other RPM file (or `dnf
   swap` from a repository) moves a node between the two, keeping the configuration,
   keys and service state. RHEL 9 and 10 RPMs use the system OpenSSL 3.5

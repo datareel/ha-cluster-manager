@@ -94,10 +94,11 @@ example means content left out.
       RPM spec drcm_rhel9.spec.
   RHEL 8
       Status: Best effort, legacy
-      Notes: Two packages from 1.49: drcm_server (system OpenSSL
-      1.1.1, FIPS-validated, classic TLS; the dnf upgrade default) and
-      drcm_server-openssl35 (OpenSSL 3.5 built in, post-quantum TLS, not
-      for FIPS mode). Switch while DRCM is stopped with
+      Notes: Two packages from 1.49: drcm_server, recommended (system
+      OpenSSL 1.1.1, FIPS-validated, classic TLS; the dnf upgrade
+      default), and drcm_server-openssl35, optional (OpenSSL 3.5 built
+      in, post-quantum TLS; only for hosts not in FIPS mode on the TCP
+      transport; no benefit with UDP). Switch while DRCM is stopped with
       dnf install --allowerasing and the other RPM file (or dnf swap
       from a repository).
       NetworkManager only; convert any network-scripts systems.

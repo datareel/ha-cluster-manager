@@ -174,13 +174,17 @@ Manual: sections 3 and 4 of `docs/drcm.txt`.
    Stop if it fails.
 2. `dnf -y install ./drcm_server-1.49-1.el8.x86_64.rpm` on each node (one
    node at a time, rule 1). RHEL 9 and 10 have one package. RHEL 8 has
-   two; the person chooses:
-   - `drcm_server-1.49-1.el8.x86_64.rpm`: RHEL 8's system OpenSSL 1.1.1,
-     FIPS-validated, classic TLS. Required on hosts in FIPS mode
+   two; **default to `drcm_server`** and suggest the other only when it
+   fits:
+   - `drcm_server-1.49-1.el8.x86_64.rpm` (**recommended, the default**):
+     RHEL 8's system OpenSSL 1.1.1, FIPS-validated, classic TLS; OpenSSL
+     fixes come with `dnf update`. Required on hosts in FIPS mode
      (`fips-mode-setup --check`).
-   - `drcm_server-openssl35-1.49-1.el8.x86_64.rpm`: OpenSSL 3.5 built in,
-     post-quantum TLS key exchange, nothing extra to install. Not for FIPS
-     mode.
+   - `drcm_server-openssl35-1.49-1.el8.x86_64.rpm` (optional, opt-in):
+     OpenSSL 3.5 built in, post-quantum TLS key exchange. Suggest it only
+     for hosts not in FIPS mode whose cluster uses `cluster_transport =
+     tcp` across networks the site does not control; it gives nothing with
+     the UDP transport. DataReel re-releases it for OpenSSL fixes.
 3. Make the auth keys on ONE node, then copy the two files to the others
    over SSH (the person runs the copy or confirms it):
    ```

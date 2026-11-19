@@ -115,15 +115,18 @@ the system OpenSSL 3.5. In FIPS mode DRCM follows the system crypto
 policy (FIPS-approved groups, no post-quantum hybrid).
 
 On RHEL 8 there are two 1.49 packages; install one of them:
-  drcm_server            links RHEL 8's system OpenSSL 1.1.1 (FIPS-validated
-                         by Red Hat, classic TLS). The default: dnf upgrade
-                         from 1.37 or 1.48 stays on this package. Use it on
-                         hosts in FIPS mode.
-  drcm_server-openssl35  OpenSSL 3.5 LTS built in statically, with the
-                         post-quantum TLS key exchange. Nothing extra to
-                         install. Not for FIPS mode (the built-in OpenSSL is
-                         not a validated module). DataReel re-releases it for
-                         OpenSSL 3.5 security fixes.
+  drcm_server            RECOMMENDED. Links RHEL 8's system OpenSSL 1.1.1
+                         (FIPS-validated by Red Hat, classic TLS). The
+                         default: dnf upgrade from 1.37 or 1.48 stays on this
+                         package, OpenSSL fixes come with dnf update, and it
+                         is the only choice on hosts in FIPS mode.
+  drcm_server-openssl35  Optional, opt-in. OpenSSL 3.5 LTS built in
+                         statically, with the post-quantum TLS key exchange.
+                         Only for hosts NOT in FIPS mode that run the TCP +
+                         TLS transport across networks you do not control.
+                         No benefit with the UDP transport (UDP traffic is
+                         not encrypted with either package). DataReel
+                         re-releases it for OpenSSL 3.5 security fixes.
 Switch between them with DRCM stopped:
   dnf install --allowerasing ./drcm_server-openssl35-1.49-1.el8.x86_64.rpm
   dnf install --allowerasing ./drcm_server-1.49-1.el8.x86_64.rpm    (back)
